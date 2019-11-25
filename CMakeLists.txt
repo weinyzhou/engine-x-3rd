@@ -19,6 +19,7 @@ option(BUILD_EXT_MD5 "Build with internal md5 support" ON)
 option(BUILD_EXT_ZLIB "Build with internal zlib support" ON)
 option(BUILD_EXT_CURL "Build with internal curl support" ON)
 option(BUILD_EXT_UNZIP "Build with internal unzip support" ON)
+option(BUILD_EXT_FLATBUFFERS "Build with internal flatbuffers support" ON)
 
 add_library(external empty.cpp)
 
@@ -106,37 +107,32 @@ if(NOT LINUX)
         ext_png
     )
 endif(NOT LINUX)
-    
-if(LINUX)
-    add_subdirectory(linux-specific/fmod)
-    target_link_libraries(external 
-        ext_fmod
-    )
-endif()
 
 if(ANDROID)
     add_subdirectory(android-specific/cpufeatures)
-    add_subdirectory(android-specific/pvmp3dec)
-    add_subdirectory(android-specific/tremolo)
     target_link_libraries(external 
         ext_cpufeatures 
-        ext_pvmp3dec 
-        ext_tremolo
+    )
+endif()
+
+if(WINDOWS OR ANDROID OR LINUX)
+    add_subdirectory(openal)
+    add_subdirectory(mpg123)
+    add_subdirectory(ogg)
+    target_link_libraries(external 
+        ext_openal
+        ext_mpg123
+        ext_vorbis
+        ext_vorbisfile
     )
 endif()
 
 if(WINDOWS)
     add_subdirectory(win32-specific/gles)
     add_subdirectory(win32-specific/icon)
-    add_subdirectory(win32-specific/MP3Decoder)
-    add_subdirectory(win32-specific/OggDecoder)
-    add_subdirectory(win32-specific/OpenalSoft)
     target_link_libraries(external 
         ext_gles
         ext_icon
-        ext_MP3Decoder
-        ext_OggDecoder
-        ext_OpenalSoft
     )
 endif()
 
@@ -162,6 +158,12 @@ if(BUILD_EXT_UNZIP)
     target_link_libraries(external ext_unzip)
 endif(BUILD_EXT_UNZIP)
 
+# flatbuffers 1.11.0 rquired
+if(BUILD_EXT_FLATBUFFERS)
+    add_subdirectory(flatbuffers)
+    target_link_libraries(external ext_flatbuffers)
+endif(BUILD_EXT_FLATBUFFERS)
+
 # put "external" into External folder, too
 set_target_properties(external
     PROPERTIES
@@ -169,7 +171,6 @@ set_target_properties(external
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
     FOLDER "External"
 )
-
 
 if(MACOSX OR IOS)
     add_subdirectory(glsl-optimizer)

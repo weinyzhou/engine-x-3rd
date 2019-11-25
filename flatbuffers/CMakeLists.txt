@@ -6,6 +6,7 @@ set(target_name ext_${lib_name})
 project(${lib_name})
 
 set(${target_name}_src
+  ./util.cpp
 )
 
 add_library(${target_name} STATIC

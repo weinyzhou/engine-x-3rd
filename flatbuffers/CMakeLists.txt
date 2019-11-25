@@ -6,13 +6,6 @@ set(target_name ext_${lib_name})
 project(${lib_name})
 
 set(${target_name}_src
-  ./flatc.cpp
-  ./idl_gen_cpp.cpp
-  ./idl_gen_fbs.cpp
-  ./idl_gen_general.cpp
-  ./idl_gen_go.cpp
-  ./idl_gen_text.cpp
-  ./idl_parser.cpp
 )
 
 add_library(${target_name} STATIC

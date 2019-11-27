@@ -15,7 +15,7 @@ if(WINDOWS)
   )
 else()
   set(${target_name}_src
-   src/pugixml.cpp
+   pugixml.cpp
   )
   add_library(${target_name} STATIC
     ${${target_name}_src}

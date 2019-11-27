@@ -4665,19 +4665,19 @@ PUGI__NS_BEGIN
 	}
 
 	template <typename String, typename Header>
-	PUGI__FN bool set_value_convert(String& dest, Header& header, uintptr_t header_mask, float value)
+	PUGI__FN bool set_value_convert(String& dest, Header& header, uintptr_t header_mask, float value, int precision)
 	{
 		char buf[128];
-		PUGI__SNPRINTF(buf, "%.9g", double(value));
+		PUGI__SNPRINTF(buf, "%.*g", precision, double(value));
 
 		return set_value_ascii(dest, header, header_mask, buf);
 	}
 
 	template <typename String, typename Header>
-	PUGI__FN bool set_value_convert(String& dest, Header& header, uintptr_t header_mask, double value)
+	PUGI__FN bool set_value_convert(String& dest, Header& header, uintptr_t header_mask, double value, int precision)
 	{
 		char buf[128];
-		PUGI__SNPRINTF(buf, "%.17g", value);
+		PUGI__SNPRINTF(buf, "%.*g", precision, value);
 
 		return set_value_ascii(dest, header, header_mask, buf);
 	}
@@ -5234,68 +5234,6 @@ namespace pugi
 		return _attr;
 	}
 
-	PUGI__FN xml_attribute& xml_attribute::operator=(const char_t* rhs)
-	{
-		set_value(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_attribute& xml_attribute::operator=(int rhs)
-	{
-		set_value(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_attribute& xml_attribute::operator=(unsigned int rhs)
-	{
-		set_value(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_attribute& xml_attribute::operator=(long rhs)
-	{
-		set_value(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_attribute& xml_attribute::operator=(unsigned long rhs)
-	{
-		set_value(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_attribute& xml_attribute::operator=(double rhs)
-	{
-		set_value(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_attribute& xml_attribute::operator=(float rhs)
-	{
-		set_value(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_attribute& xml_attribute::operator=(bool rhs)
-	{
-		set_value(rhs);
-		return *this;
-	}
-
-#ifdef PUGIXML_HAS_LONG_LONG
-	PUGI__FN xml_attribute& xml_attribute::operator=(long long rhs)
-	{
-		set_value(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_attribute& xml_attribute::operator=(unsigned long long rhs)
-	{
-		set_value(rhs);
-		return *this;
-	}
-#endif
-
 	PUGI__FN bool xml_attribute::set_name(const char_t* rhs)
 	{
 		if (!_attr) return false;
@@ -5303,56 +5241,70 @@ namespace pugi
 		return impl::strcpy_insitu(_attr->name, _attr->header, impl::xml_memory_page_name_allocated_mask, rhs, impl::strlength(rhs));
 	}
 
-	PUGI__FN bool xml_attribute::set_value(const char_t* rhs)
+    template<> PUGI__FN bool xml_attribute::set_value<const char_t*>(const char_t* rhs)
 	{
 		if (!_attr) return false;
 
 		return impl::strcpy_insitu(_attr->value, _attr->header, impl::xml_memory_page_value_allocated_mask, rhs, impl::strlength(rhs));
 	}
 
-	PUGI__FN bool xml_attribute::set_value(int rhs)
+    template<> PUGI__FN bool xml_attribute::set_value<int>(int rhs)
 	{
 		if (!_attr) return false;
 
 		return impl::set_value_integer<unsigned int>(_attr->value, _attr->header, impl::xml_memory_page_value_allocated_mask, rhs, rhs < 0);
 	}
 
-	PUGI__FN bool xml_attribute::set_value(unsigned int rhs)
+    template<> PUGI__FN bool xml_attribute::set_value<unsigned int>(unsigned int rhs)
 	{
 		if (!_attr) return false;
 
 		return impl::set_value_integer<unsigned int>(_attr->value, _attr->header, impl::xml_memory_page_value_allocated_mask, rhs, false);
 	}
 
-	PUGI__FN bool xml_attribute::set_value(long rhs)
+    template<> PUGI__FN bool xml_attribute::set_value<long>(long rhs)
 	{
 		if (!_attr) return false;
 
 		return impl::set_value_integer<unsigned long>(_attr->value, _attr->header, impl::xml_memory_page_value_allocated_mask, rhs, rhs < 0);
 	}
 
-	PUGI__FN bool xml_attribute::set_value(unsigned long rhs)
+    template<> PUGI__FN bool xml_attribute::set_value<unsigned long>(unsigned long rhs)
 	{
 		if (!_attr) return false;
 
 		return impl::set_value_integer<unsigned long>(_attr->value, _attr->header, impl::xml_memory_page_value_allocated_mask, rhs, false);
 	}
 
-	PUGI__FN bool xml_attribute::set_value(double rhs)
+    template<> PUGI__FN bool xml_attribute::set_value<double>(double rhs)
 	{
 		if (!_attr) return false;
 
-		return impl::set_value_convert(_attr->value, _attr->header, impl::xml_memory_page_value_allocated_mask, rhs);
+		return impl::set_value_convert(_attr->value, _attr->header, impl::xml_memory_page_value_allocated_mask, rhs, default_double_precision);
 	}
 
-	PUGI__FN bool xml_attribute::set_value(float rhs)
+	PUGI__FN bool xml_attribute::set_value(double rhs, int precision)
 	{
 		if (!_attr) return false;
 
-		return impl::set_value_convert(_attr->value, _attr->header, impl::xml_memory_page_value_allocated_mask, rhs);
+		return impl::set_value_convert(_attr->value, _attr->header, impl::xml_memory_page_value_allocated_mask, rhs, precision);
+	}
+    
+    template<> PUGI__FN bool xml_attribute::set_value<float>(float rhs)
+	{
+		if (!_attr) return false;
+
+		return impl::set_value_convert(_attr->value, _attr->header, impl::xml_memory_page_value_allocated_mask, rhs, default_float_precision);
 	}
 
-	PUGI__FN bool xml_attribute::set_value(bool rhs)
+	PUGI__FN bool xml_attribute::set_value(float rhs, int precision)
+	{
+		if (!_attr) return false;
+
+		return impl::set_value_convert(_attr->value, _attr->header, impl::xml_memory_page_value_allocated_mask, rhs, precision);
+	}
+
+    template<> PUGI__FN bool xml_attribute::set_value<bool>(bool rhs)
 	{
 		if (!_attr) return false;
 
@@ -5360,14 +5312,14 @@ namespace pugi
 	}
 
 #ifdef PUGIXML_HAS_LONG_LONG
-	PUGI__FN bool xml_attribute::set_value(long long rhs)
+    template<> PUGI__FN bool xml_attribute::set_value<long long>(long long rhs)
 	{
 		if (!_attr) return false;
 
 		return impl::set_value_integer<unsigned long long>(_attr->value, _attr->header, impl::xml_memory_page_value_allocated_mask, rhs, rhs < 0);
 	}
-
-	PUGI__FN bool xml_attribute::set_value(unsigned long long rhs)
+    
+    template<> PUGI__FN bool xml_attribute::set_value<unsigned long long>(unsigned long long rhs)
 	{
 		if (!_attr) return false;
 
@@ -5492,14 +5444,6 @@ namespace pugi
 	PUGI__FN const char_t* xml_node::value() const
 	{
 		return (_root && _root->value) ? _root->value + 0 : PUGIXML_TEXT("");
-	}
-
-	PUGI__FN xml_node xml_node::operator[](const char_t* name_)
-	{
-		if (!_root) return xml_node();
-		xml_node n = child(name_);
-		if (n) return n;
-		return append_child(name_);
 	}
 
 	PUGI__FN xml_node xml_node::child(const char_t* name_) const
@@ -6070,7 +6014,7 @@ namespace pugi
 	PUGI__FN bool xml_node::remove_attributes()
 	{
 		if (!_root) return false;
-		
+
 		impl::xml_allocator& alloc = impl::get_allocator(_root);
 		if (!alloc.reserve()) return false;
 
@@ -6513,57 +6457,71 @@ namespace pugi
 		return (d && d->value) ? impl::get_value_ullong(d->value) : def;
 	}
 #endif
-
-	PUGI__FN bool xml_text::set(const char_t* rhs)
+    
+    template<> PUGI__FN bool xml_text::set<const char_t*>(const char_t* rhs)
 	{
 		xml_node_struct* dn = _data_new();
 
 		return dn ? impl::strcpy_insitu(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs, impl::strlength(rhs)) : false;
 	}
-
-	PUGI__FN bool xml_text::set(int rhs)
+    
+    template<> PUGI__FN bool xml_text::set<int>(int rhs)
 	{
 		xml_node_struct* dn = _data_new();
 
 		return dn ? impl::set_value_integer<unsigned int>(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs, rhs < 0) : false;
 	}
 
-	PUGI__FN bool xml_text::set(unsigned int rhs)
+    template<> PUGI__FN bool xml_text::set<unsigned int>(unsigned int rhs)
 	{
 		xml_node_struct* dn = _data_new();
 
 		return dn ? impl::set_value_integer<unsigned int>(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs, false) : false;
 	}
 
-	PUGI__FN bool xml_text::set(long rhs)
+    template<> PUGI__FN bool xml_text::set<long>(long rhs)
 	{
 		xml_node_struct* dn = _data_new();
 
 		return dn ? impl::set_value_integer<unsigned long>(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs, rhs < 0) : false;
 	}
 
-	PUGI__FN bool xml_text::set(unsigned long rhs)
+    template<> PUGI__FN bool xml_text::set<unsigned long>(unsigned long rhs)
 	{
 		xml_node_struct* dn = _data_new();
 
 		return dn ? impl::set_value_integer<unsigned long>(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs, false) : false;
 	}
 
-	PUGI__FN bool xml_text::set(float rhs)
+    template<> PUGI__FN bool xml_text::set<float>(float rhs)
 	{
 		xml_node_struct* dn = _data_new();
 
-		return dn ? impl::set_value_convert(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs) : false;
+		return dn ? impl::set_value_convert(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs, default_float_precision) : false;
 	}
 
-	PUGI__FN bool xml_text::set(double rhs)
+    PUGI__FN bool xml_text::set(float rhs, int precision)
 	{
 		xml_node_struct* dn = _data_new();
 
-		return dn ? impl::set_value_convert(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs) : false;
+		return dn ? impl::set_value_convert(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs, precision) : false;
 	}
 
-	PUGI__FN bool xml_text::set(bool rhs)
+    template<> PUGI__FN bool xml_text::set<double>(double rhs)
+	{
+		xml_node_struct* dn = _data_new();
+
+		return dn ? impl::set_value_convert(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs, default_double_precision) : false;
+	}
+
+    PUGI__FN bool xml_text::set(double rhs, int precision)
+	{
+		xml_node_struct* dn = _data_new();
+
+		return dn ? impl::set_value_convert(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs, precision) : false;
+	}
+
+    template<> PUGI__FN bool xml_text::set<bool>(bool rhs)
 	{
 		xml_node_struct* dn = _data_new();
 
@@ -6571,80 +6529,18 @@ namespace pugi
 	}
 
 #ifdef PUGIXML_HAS_LONG_LONG
-	PUGI__FN bool xml_text::set(long long rhs)
+    template<> PUGI__FN bool xml_text::set<long long>(long long rhs)
 	{
 		xml_node_struct* dn = _data_new();
 
 		return dn ? impl::set_value_integer<unsigned long long>(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs, rhs < 0) : false;
 	}
 
-	PUGI__FN bool xml_text::set(unsigned long long rhs)
+    template<> PUGI__FN bool xml_text::set<unsigned long long>(unsigned long long rhs)
 	{
 		xml_node_struct* dn = _data_new();
 
 		return dn ? impl::set_value_integer<unsigned long long>(dn->value, dn->header, impl::xml_memory_page_value_allocated_mask, rhs, false) : false;
-	}
-#endif
-
-	PUGI__FN xml_text& xml_text::operator=(const char_t* rhs)
-	{
-		set(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_text& xml_text::operator=(int rhs)
-	{
-		set(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_text& xml_text::operator=(unsigned int rhs)
-	{
-		set(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_text& xml_text::operator=(long rhs)
-	{
-		set(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_text& xml_text::operator=(unsigned long rhs)
-	{
-		set(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_text& xml_text::operator=(double rhs)
-	{
-		set(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_text& xml_text::operator=(float rhs)
-	{
-		set(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_text& xml_text::operator=(bool rhs)
-	{
-		set(rhs);
-		return *this;
-	}
-
-#ifdef PUGIXML_HAS_LONG_LONG
-	PUGI__FN xml_text& xml_text::operator=(long long rhs)
-	{
-		set(rhs);
-		return *this;
-	}
-
-	PUGI__FN xml_text& xml_text::operator=(unsigned long long rhs)
-	{
-		set(rhs);
-		return *this;
 	}
 #endif
 
@@ -9736,7 +9632,7 @@ PUGI__NS_BEGIN
 			{
 				xpath_context c(*it, i, size);
 
-				if (expr->eval_number(c, stack) == i)
+				if (expr->eval_number(c, stack) == static_cast<double>(i))
 				{
 					*last++ = *it;
 
@@ -9760,11 +9656,11 @@ PUGI__NS_BEGIN
 
 			double er = expr->eval_number(c, stack);
 
-			if (er >= 1.0 && er <= size)
+			if (er >= 1.0 && er <= static_cast<double>(size))
 			{
 				size_t eri = static_cast<size_t>(er);
 
-				if (er == eri)
+				if (er == static_cast<double>(eri))
 				{
 					xpath_node r = last[eri - 1];
 
@@ -10722,7 +10618,7 @@ PUGI__NS_BEGIN
 				double first = round_nearest(_right->eval_number(c, stack));
 
 				if (is_nan(first)) return xpath_string(); // NaN
-				else if (first >= s_length + 1) return xpath_string();
+				else if (first >= static_cast<double>(s_length + 1)) return xpath_string();
 
 				size_t pos = first < 1 ? 1 : static_cast<size_t>(first);
 				assert(1 <= pos && pos <= s_length + 1);
@@ -10746,12 +10642,12 @@ PUGI__NS_BEGIN
 				double last = first + round_nearest(_right->_next->eval_number(c, stack));
 
 				if (is_nan(first) || is_nan(last)) return xpath_string();
-				else if (first >= s_length + 1) return xpath_string();
+				else if (first >= static_cast<double>(s_length + 1)) return xpath_string();
 				else if (first >= last) return xpath_string();
 				else if (last < 1) return xpath_string();
 
 				size_t pos = first < 1 ? 1 : static_cast<size_t>(first);
-				size_t end = last >= s_length + 1 ? s_length + 1 : static_cast<size_t>(last);
+				size_t end = last >= static_cast<double>(s_length + 1) ? s_length + 1 : static_cast<size_t>(last);
 
 				assert(1 <= pos && pos <= end && end <= s_length + 1);
 				const char_t* rbegin = s.c_str() + (pos - 1);

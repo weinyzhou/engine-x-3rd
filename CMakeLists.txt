@@ -125,6 +125,13 @@ if(WINDOWS OR ANDROID OR LINUX)
         ext_vorbis
         ext_vorbisfile
     )
+else()
+    add_subdirectory(ogg)
+    target_link_libraries(external 
+        ext_ogg
+        ext_vorbis
+        ext_vorbisfile
+    )
 endif()
 
 if(WINDOWS)

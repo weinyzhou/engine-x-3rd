@@ -31,6 +31,11 @@ macro(set_ogg_sub_target sub_lib_name)
   endif()
 endmacro()
 
+if(NOT WINDOWS)
+    set(target_name ogg)
+    set_ogg_sub_target(${target_name})
+endif()
+
 # -----sub target 1: vorbis-----
 set(target_name vorbis)
 set_ogg_sub_target(${target_name})

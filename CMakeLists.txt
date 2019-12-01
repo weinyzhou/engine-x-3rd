@@ -115,31 +115,37 @@ if(ANDROID)
     )
 endif()
 
-if(WINDOWS OR ANDROID OR LINUX)
-    add_subdirectory(openal)
-    add_subdirectory(mpg123)
-    add_subdirectory(ogg)
-    target_link_libraries(external 
-        ext_openal
-        ext_mpg123
+# OpenAL streaming play family: ogg
+add_subdirectory(ogg)
+if(WINDOWS)
+    target_link_libraries(external
         ext_vorbis
         ext_vorbisfile
     )
 else()
-    add_subdirectory(ogg)
-    target_link_libraries(external 
+    target_link_libraries(external
         ext_ogg
         ext_vorbis
         ext_vorbisfile
     )
 endif()
 
+# OpenAL streaming play family: openal & mpg123
+if(WINDOWS OR ANDROID OR LINUX)
+    add_subdirectory(openal)
+    add_subdirectory(mpg123)
+    target_link_libraries(external 
+        ext_openal
+        ext_mpg123
+    )
+endif()
+
 if(WINDOWS)
     add_subdirectory(win32-specific/gles)
-    add_subdirectory(win32-specific/icon)
+    add_subdirectory(win32-specific/iconv)
     target_link_libraries(external 
         ext_gles
-        ext_icon
+        ext_iconv
     )
 endif()
 

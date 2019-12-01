@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.6)
 
-set(lib_name icon)
+set(lib_name iconv)
 set(target_name ext_${lib_name})
 
 project(${lib_name})

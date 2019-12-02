@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.6)
 
-set(lib_name ogg)
-
-project(${lib_name})
+project(ogg_libs)
 
 include(../cmake/CocosExternalConfig.cmake)
 

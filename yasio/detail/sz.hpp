@@ -4,7 +4,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 /*
 The MIT License (MIT)
-Copyright (c) 2012-2020 halx99
+Copyright (c) 2012-2020 HALX99
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -49,5 +49,7 @@ static const uint64_t YASIO__EB = (1024 * YASIO__PB); // lgtm [cpp/unused-static
 #define YASIO__e YASIO__E
 
 #define YASIO_SZ(n, u) ((n)*YASIO__##u)
+
+#define YASIO_SZ_ALIGN(d, a) (((d) + ((a)-1)) & ~((a)-1))
 
 #endif

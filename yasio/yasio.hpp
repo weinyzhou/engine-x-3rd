@@ -5,7 +5,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2012-2019 halx99
+Copyright (c) 2012-2020 HALX99
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -68,7 +68,7 @@ namespace inet
 enum
 {
   // Set timeouts in seconds
-  // params: dns_cache_timeout:int(600), connect_timeout:int(10),reconnect_timeout:int(-1)
+  // params: dns_cache_timeout:int(600), connect_timeout:int(10)
   YOPT_S_TIMEOUTS = 1,
 
   // Set with deferred dispatch event, default is: 1
@@ -141,28 +141,43 @@ enum
   YOPT_I_SOCKOPT,
 };
 
-// channel mask
+// channel mask, contains transport type: POSIX, MCAST, KCP, SSL
 enum
 {
-  YCM_CLIENT     = 1,
-  YCM_SERVER     = 1 << 1,
-  YCM_TCP        = 1 << 2,
-  YCM_UDP        = 1 << 3,
-  YCM_TCP_CLIENT = YCM_TCP | YCM_CLIENT,
-  YCM_TCP_SERVER = YCM_TCP | YCM_SERVER,
-  YCM_UDP_CLIENT = YCM_UDP | YCM_CLIENT,
-  YCM_UDP_SERVER = YCM_UDP | YCM_SERVER,
+  YCM_CLIENT = 1,
+  YCM_SERVER = 1 << 1,
+  YCM_POSIX  = 1 << 2,
+  YCM_TCP    = 1 << 3,
+  YCM_UDP    = 1 << 4,
+  YCM_MCAST  = 1 << 5,
+#if defined(YASIO_HAVE_KCP)
+  YCM_KCP = 1 << 6,
+#endif
+#if defined(YASIO_HAVE_SSL)
+  YCM_SSL = 1 << 7,
+#endif
+  YCM_TCP_CLIENT   = YCM_TCP | YCM_CLIENT | YCM_POSIX,
+  YCM_TCP_SERVER   = YCM_TCP | YCM_SERVER | YCM_POSIX,
+  YCM_UDP_CLIENT   = YCM_UDP | YCM_CLIENT | YCM_POSIX,
+  YCM_UDP_SERVER   = YCM_UDP | YCM_SERVER | YCM_POSIX,
+  YCM_MCAST_CLIENT = YCM_MCAST | YCM_CLIENT | YCM_UDP,
+  YCM_MCAST_SERVER = YCM_MCAST | YCM_SERVER | YCM_UDP | YCM_POSIX,
+#if defined(YASIO_HAVE_KCP)
+  YCM_KCP_CLIENT = YCM_KCP | YCM_CLIENT | YCM_UDP,
+  YCM_KCP_SERVER = YCM_KCP | YCM_SERVER | YCM_UDP,
+#endif
+#if defined(YASIO_HAVE_SSL)
+  YCM_SSL_CLIENT = YCM_SSL | YCM_CLIENT | YCM_TCP,
+#endif
 };
 
 // channel flags
 enum
 {
-  YCF_MCAST          = 1 << 1,
-  YCF_MCAST_LOOPBACK = 1 << 2,
-#if defined(YASIO_HAVE_KCP)
-  YCF_KCP = 1 << 3,
-#endif
-  YCF_REUSEPORT = 1 << 4,
+  YCF_MCAST_LOOPBACK    = 1 << 1,
+  YCF_REUSEPORT         = 1 << 2,
+  YCF_MCAST_HANDSHAKING = 1 << 3,
+  YCF_SSL_HANDSHAKING   = 1 << 4,
 };
 
 // event kinds
@@ -180,6 +195,8 @@ class io_event;
 class io_channel;
 class io_transport;
 class io_transport_posix;
+class io_transport_mcast; // for multicast client
+class io_transport_kcp;
 class io_service;
 
 // recommand user always use transport_handle_t, in the future, it's maybe void* or intptr_t
@@ -282,6 +299,7 @@ class io_channel : public io_base
 {
   friend class io_service;
   friend class io_transport_posix;
+  friend class io_transport_mcast;
 
 public:
   io_service& get_service() { return deadline_timer_.service_; }
@@ -297,8 +315,8 @@ private:
     setup_remote_port(port);
   }
 
-  YASIO__DECL int join_multicast_group(std::shared_ptr<xxsocket>&, int loopback);
-  YASIO__DECL void leave_multicast_group(std::shared_ptr<xxsocket>&);
+  YASIO__DECL int join_multicast_group();
+  YASIO__DECL void leave_multicast_group();
 
   YASIO__DECL void setup_remote_host(std::string host);
   YASIO__DECL void setup_remote_port(u_short port);
@@ -335,10 +353,10 @@ private:
 
   struct __unnamed01
   {
+    int max_frame_length    = YASIO_SZ(10, M); // 10MBytes
     int length_field_offset = -1; // -1: directly, >= 0: store as 1~4bytes integer, default value=-1
     int length_field_length = 4;  // 1,2,3,4
     int length_adjustment   = 0;
-    int max_frame_length    = YASIO_SZ(10, M); // 10MBytes
   } lfb_;
   decode_len_fn_t decode_len_;
 
@@ -386,8 +404,11 @@ private:
   // Try flush pending packet
   virtual bool do_write(long long& max_wait_duration) = 0;
 
+  // Sets the underlying layer socket io primitives.
+  YASIO__DECL virtual void set_primitives() {}
+
 protected:
-  YASIO__DECL io_transport(io_channel* ctx, std::shared_ptr<xxsocket> sock);
+  YASIO__DECL io_transport(io_channel* ctx, std::shared_ptr<xxsocket>& s);
   virtual ~io_transport() {}
 
   void invalid() { valid_ = false; }
@@ -416,29 +437,39 @@ public:
 class io_transport_posix : public io_transport
 {
 public:
-  YASIO__DECL io_transport_posix(io_channel* ctx, std::shared_ptr<xxsocket> sock);
+  io_transport_posix(io_channel* ctx, std::shared_ptr<xxsocket>& s) : io_transport(ctx, s) {}
 
-private:
+protected:
   YASIO__DECL void write(std::vector<char>&&, std::function<void()>&&) override;
   YASIO__DECL int do_read(int& error) override;
   YASIO__DECL bool do_write(long long& max_wait_duration) override;
 
-  // set the low level send/recv primitives.
-  YASIO__DECL void set_primitives(bool connected);
+  YASIO__DECL void set_primitives() override;
 
-  std::function<int(const void*, int)> send_cb_;
-  std::function<int(void*, int)> recv_cb_;
+  std::function<int(const void*, int)> write_cb_;
+  std::function<int(void*, int)> read_cb_;
   concurrency::concurrent_queue<a_pdu_ptr> send_queue_;
+};
+
+class io_transport_mcast : public io_transport_posix
+{
+public:
+  YASIO__DECL io_transport_mcast(io_channel* ctx, std::shared_ptr<xxsocket>& s);
+  YASIO__DECL ~io_transport_mcast();
+
+protected:
+  YASIO__DECL void set_primitives() override;
+  YASIO__DECL int do_read(int& error) override;
 };
 
 #if defined(YASIO_HAVE_KCP)
 class io_transport_kcp : public io_transport
 {
 public:
-  YASIO__DECL io_transport_kcp(io_channel* ctx, std::shared_ptr<xxsocket> sock);
+  YASIO__DECL io_transport_kcp(io_channel* ctx, std::shared_ptr<xxsocket>& s);
   YASIO__DECL ~io_transport_kcp();
 
-private:
+protected:
   YASIO__DECL void write(std::vector<char>&&, std::function<void()>&&) override;
   YASIO__DECL int do_read(int& error) override;
   YASIO__DECL bool do_write(long long& max_wait_duration) override;
@@ -492,6 +523,7 @@ class io_service // lgtm [cpp/class-many-fields]
 {
   friend class deadline_timer;
   friend class io_transport_posix;
+  friend class io_transport_mcast;
   friend class io_transport_kcp;
 
 public:
@@ -708,8 +740,7 @@ private:
   // options
   struct __unnamed_options
   {
-    highp_time_t connect_timeout_   = 10LL * MICROSECONDS_PER_SECOND;
-    highp_time_t reconnect_timeout_ = -1;
+    highp_time_t connect_timeout_ = 10LL * MICROSECONDS_PER_SECOND;
     // Default dns cache time: 10 minutes
     highp_time_t dns_cache_timeout_ = 600LL * MICROSECONDS_PER_SECOND;
 

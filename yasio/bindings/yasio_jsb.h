@@ -5,7 +5,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2012-2019 halx99
+Copyright (c) 2012-2020 HALX99
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -27,33 +27,16 @@ SOFTWARE.
 */
 
 #pragma once
+#include "jsapi.h"
 
-#if defined(YASIO_BUILD_AS_DLL)
-#  if defined(YASIO_LIB)
-#    define YASIO_API __declspec(dllexport)
-#  else
-#    define YASIO_API __declspec(dllimport)
-#  endif
-#else
-#  define YASIO_API
-#endif
+void jsb_register_yasio(JSContext* cx, JS::HandleObject global);
 
-#if defined(__cplusplus)
-extern "C" {
-#endif
-struct lua_State;
-YASIO_API int luaopen_yasio_cclua(lua_State* L);
-#if defined(__cplusplus)
-}
-
-namespace lyasio
+namespace yasio_jsb
 {
 namespace stimer
 {
-// !IMPORTANT: You should call function this when you want restart script Virtual Machine for some
+// !IMPORTANT: You should call this function when you want restart script Virtual Machine for some
 // purpose.
-YASIO_API void clear();
+void clear();
 } // namespace stimer
-} // namespace lyasio
-
-#endif
+} // namespace yasio_jsb

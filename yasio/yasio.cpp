@@ -5,10 +5,10 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2012-2019 HALX99
+Copyright (c) 2012-2020 HALX99
 
 HAL: Hardware Abstraction Layer
-X99: Intel X99
+X99: Intel X99 Mainboard Platform
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -69,6 +69,9 @@ SOFTWARE.
 #endif
 
 #define YASIO_ANY_ADDR(flags) (flags) & ipsv_ipv4 ? "0.0.0.0" : "::"
+
+// The multicast explicit peer endpoint index
+#define YASIO_MCAST_EPI 1
 
 #if defined(_MSC_VER)
 #  pragma warning(push)
@@ -133,17 +136,17 @@ enum : short
 #if defined(_WIN32)
 const DWORD MS_VC_EXCEPTION = 0x406D1388;
 #  pragma pack(push, 8)
-typedef struct tagTHREADNAME_INFO
+typedef struct _yasio__thread_info
 {
   DWORD dwType;     // Must be 0x1000.
   LPCSTR szName;    // Pointer to name (in user addr space).
   DWORD dwThreadID; // Thread ID (-1=caller thread).
   DWORD dwFlags;    // Reserved for future use, must be zero.
-} THREADNAME_INFO;
+} yasio__thread_info;
 #  pragma pack(pop)
-static void _set_thread_name(const char* threadName)
+static void yasio__set_thread_name(const char* threadName)
 {
-  THREADNAME_INFO info;
+  yasio__thread_info info;
   info.dwType     = 0x1000;
   info.szName     = threadName;
   info.dwThreadID = GetCurrentThreadId();
@@ -157,12 +160,12 @@ static void _set_thread_name(const char* threadName)
   {}
 #  endif
 }
-#elif defined(ANDROID)
-#  define _set_thread_name(name) pthread_setname_np(pthread_self(), name)
+#elif defined(__linux__)
+#  define yasio__set_thread_name(name) pthread_setname_np(pthread_self(), name)
 #elif defined(__APPLE__)
-#  define _set_thread_name(name) pthread_setname_np(name)
+#  define yasio__set_thread_name(name) pthread_setname_np(name)
 #else
-#  define _set_thread_name(name)
+#  define yasio__set_thread_name(name)
 #endif
 } // namespace
 
@@ -209,35 +212,37 @@ io_channel::io_channel(io_service& service) : deadline_timer_(service)
   decode_len_ = [=](void* ptr, int len) { return this->__builtin_decode_len(ptr, len); };
 }
 
-int io_channel::join_multicast_group(std::shared_ptr<xxsocket>& sock, int loopback)
+int io_channel::join_multicast_group()
 {
-  if (sock && !this->remote_eps_.empty())
+  if (socket_ && !this->remote_eps_.empty())
   {
     auto& ep = this->remote_eps_[0];
     // loopback
-    sock->set_optval(ep.af() == AF_INET ? IPPROTO_IP : IPPROTO_IPV6,
-                     ep.af() == AF_INET ? IP_MULTICAST_LOOP : IPV6_MULTICAST_LOOP, loopback);
+
+    int loopback = (flags_ & YCF_MCAST_LOOPBACK) != 0;
+    socket_->set_optval(ep.af() == AF_INET ? IPPROTO_IP : IPPROTO_IPV6,
+                        ep.af() == AF_INET ? IP_MULTICAST_LOOP : IPV6_MULTICAST_LOOP, loopback);
     // ttl
-    sock->set_optval(ep.af() == AF_INET ? IPPROTO_IP : IPPROTO_IPV6,
-                     ep.af() == AF_INET ? IP_MULTICAST_TTL : IPV6_MULTICAST_HOPS,
-                     YASIO_DEFAULT_MULTICAST_TTL);
+    socket_->set_optval(ep.af() == AF_INET ? IPPROTO_IP : IPPROTO_IPV6,
+                        ep.af() == AF_INET ? IP_MULTICAST_TTL : IPV6_MULTICAST_HOPS,
+                        YASIO_DEFAULT_MULTICAST_TTL);
 
     struct ip_mreq mreq;
     mreq.imr_interface.s_addr = 0;
     mreq.imr_multiaddr.s_addr = ep.in4_.sin_addr.s_addr;
-    return sock->set_optval(IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, (int)sizeof(mreq));
+    return socket_->set_optval(IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, (int)sizeof(mreq));
   }
   return -1;
 }
 
-void io_channel::leave_multicast_group(std::shared_ptr<xxsocket>& sock)
+void io_channel::leave_multicast_group()
 {
-  if (sock && !this->remote_eps_.empty())
+  if (socket_ && !this->remote_eps_.empty())
   {
     struct ip_mreq mreq;
     mreq.imr_interface.s_addr = 0;
     mreq.imr_multiaddr.s_addr = this->remote_eps_[0].in4_.sin_addr.s_addr;
-    sock->set_optval(IPPROTO_IP, IP_DROP_MEMBERSHIP, &mreq, (int)sizeof(mreq));
+    socket_->set_optval(IPPROTO_IP, IP_DROP_MEMBERSHIP, &mreq, (int)sizeof(mreq));
   }
 }
 
@@ -311,29 +316,24 @@ int io_channel::__builtin_decode_len(void* ud, int n)
 }
 
 // -------------------- io_transport ---------------------
-io_transport::io_transport(io_channel* ctx, std::shared_ptr<xxsocket> sock) : ctx_(ctx)
+io_transport::io_transport(io_channel* ctx, std::shared_ptr<xxsocket>& s) : ctx_(ctx)
 {
   static unsigned int s_object_id = 0;
   this->state_                    = YCS_OPENED;
   this->id_                       = ++s_object_id;
-  this->socket_                   = sock;
+  this->socket_                   = s;
   this->valid_                    = true;
   this->ud_.ptr                   = nullptr;
 }
 
 // -------------------- io_transport_posix ---------------------
-io_transport_posix::io_transport_posix(io_channel* ctx, std::shared_ptr<xxsocket> sock)
-    : io_transport(ctx, sock)
-{
-  this->set_primitives(!(ctx->flags_ & YCF_MCAST) || !(ctx->mask_ & YCM_CLIENT));
-}
 void io_transport_posix::write(std::vector<char>&& buffer, std::function<void()>&& handler)
 {
   send_queue_.emplace(std::make_shared<a_pdu>(std::move(buffer), std::move(handler)));
 }
 int io_transport_posix::do_read(int& error)
 {
-  int n = recv_cb_(buffer_ + offset_, sizeof(buffer_) - offset_);
+  int n = read_cb_(buffer_ + offset_, sizeof(buffer_) - offset_);
   error = n < 0 ? xxsocket::get_last_errno() : 0;
   return n;
 }
@@ -351,7 +351,7 @@ bool io_transport_posix::do_write(long long& max_wait_duration)
     {
       auto v                 = *pv;
       auto outstanding_bytes = static_cast<int>(v->buffer_.size() - v->offset_);
-      int n                  = send_cb_(v->buffer_.data() + v->offset_, outstanding_bytes);
+      int n                  = write_cb_(v->buffer_.data() + v->offset_, outstanding_bytes);
       if (n == outstanding_bytes)
       { // All pdu bytes sent.
         send_queue_.pop();
@@ -396,44 +396,67 @@ bool io_transport_posix::do_write(long long& max_wait_duration)
 
   return ret;
 }
-void io_transport_posix::set_primitives(bool connected)
+void io_transport_posix::set_primitives()
 {
-  if (connected)
-  {
-    this->send_cb_ = [=](const void* data, int len) { return socket_->send_i(data, len); };
-    this->recv_cb_ = [=](void* data, int len) { return socket_->recv_i(data, len, 0); };
-  }
-  else
-  {
-    this->send_cb_ = [=](const void* data, int len) {
-      return socket_->sendto_i(data, len, ctx_->remote_eps_[0]);
-    };
-    this->recv_cb_ = [=](void* data, int len) {
-      ip::endpoint peer;
-      int n = socket_->recvfrom_i(data, len, peer);
+  this->write_cb_ = [=](const void* data, int len) { return socket_->send_i(data, len); };
+  this->read_cb_  = [=](void* data, int len) { return socket_->recv_i(data, len, 0); };
+}
 
+// ----------------------- io_transport_mcast ----------------
+io_transport_mcast::io_transport_mcast(io_channel* ctx, std::shared_ptr<xxsocket>& s)
+    : io_transport_posix(ctx, s)
+{
+  ctx->flags_ |= YCF_MCAST_HANDSHAKING;
+}
+io_transport_mcast::~io_transport_mcast() { ctx_->flags_ &= ~YCF_MCAST_HANDSHAKING; }
+void io_transport_mcast::set_primitives()
+{
+  this->write_cb_ = [=](const void* data, int len) {
+    return socket_->sendto_i(data, len, ctx_->remote_eps_[0]);
+  };
+  this->read_cb_ = [=](void* data, int len) {
+    ip::endpoint peer;
+    int n = socket_->recvfrom_i(data, len, peer);
+
+    if (n > 0)
+    { // record explicit peer endpoint
+      ctx_->remote_eps_.resize(YASIO_MCAST_EPI + 1);
+      ctx_->remote_eps_[YASIO_MCAST_EPI] = peer;
+    }
+    return n;
+  };
+}
+int io_transport_mcast::do_read(int& error)
+{
+  int n = io_transport_posix::do_read(error);
+  if (ctx_->flags_ & YCF_MCAST_HANDSHAKING)
+  {
+    if (n > 0 && ctx_->remote_eps_.size() > YASIO_MCAST_EPI)
+    {
       // Now the 'peer' is a real host address
       // So  we can use connect to establish 4 tuple with 'peer' & leave the multicast group.
-      if (n > 0 && 0 == socket_->connect_n(peer))
+      if (0 == socket_->connect_n(ctx_->remote_eps_[YASIO_MCAST_EPI]))
       {
-        ctx_->leave_multicast_group(socket_);
+        ctx_->flags_ &= ~YCF_MCAST_HANDSHAKING;
+        ctx_->leave_multicast_group();
+        io_transport_posix::set_primitives();
 
-        YASIO_SLOG_IMPL(
-            get_service().options_,
-            "[index: %d] the connection #%u [%s] --> [%s] is established through multicast: [%s].",
-            ctx_->index_, this->id_, socket_->local_endpoint().to_string().c_str(),
-            socket_->peer_endpoint().to_string().c_str(), ctx_->remote_host_.c_str());
-
-        set_primitives(true);
+        YASIO_SLOG_IMPL(get_service().options_,
+                        "[index: %d] the connection #%u [%s] --> [%s] is established through "
+                        "multicast: [%s].",
+                        ctx_->index_, this->id_, socket_->local_endpoint().to_string().c_str(),
+                        socket_->peer_endpoint().to_string().c_str(), ctx_->remote_host_.c_str());
+        return n;
       }
-      return n;
-    };
+    }
   }
+  return n;
 }
+
 #if defined(YASIO_HAVE_KCP)
 // ----------------------- io_transport_kcp ------------------
-io_transport_kcp::io_transport_kcp(io_channel* ctx, std::shared_ptr<xxsocket> sock)
-    : io_transport(ctx, sock), kcp_(nullptr)
+io_transport_kcp::io_transport_kcp(io_channel* ctx, std::shared_ptr<xxsocket>& s)
+    : io_transport(ctx, s), kcp_(nullptr)
 {
   this->kcp_ = ::ikcp_create(0, this);
   ::ikcp_nodelay(this->kcp_, 1, 16 /*MAX_WAIT_DURATION / 1000*/, 2, 1);
@@ -645,7 +668,7 @@ void io_service::dispatch(int count)
 
 void io_service::run()
 {
-  _set_thread_name("yasio");
+  yasio__set_thread_name("yasio");
 
   // Call once at startup
   this->ipsv_ = static_cast<u_short>(xxsocket::getipsv());
@@ -765,7 +788,7 @@ void io_service::perform_channels(fd_set* fds_array)
         {
           do_nonblocking_connect_completion(ctx, fds_array);
         }
-        finish = ctx->error_ != EINPROGRESS;
+        finish = ctx->error_ != EINPROGRESS && (ctx->opmask_ & YOPM_OPEN_CHANNEL) == 0;
       }
       else if (ctx->mask_ & YCM_SERVER)
       {
@@ -877,19 +900,6 @@ void io_service::handle_close(transport_handle_t transport)
 
   // @Notify connection lost
   this->handle_event(event_ptr(new io_event(ctx->index_, YEK_CONNECTION_LOST, ec, ptr)));
-
-  // @Process tcp client reconnect
-  if (ctx->mask_ == YCM_TCP_CLIENT)
-  {
-    if (options_.reconnect_timeout_ > 0 && ctx->state_ != YCS_OPENING)
-    {
-      ctx->state_ = YCS_OPENING;
-      this->schedule(options_.reconnect_timeout_, [=](bool cancelled) {
-        if (!cancelled)
-          this->open_internal(ctx, true);
-      });
-    }
-  }
 }
 
 void io_service::register_descriptor(const socket_native_type fd, int flags)
@@ -975,10 +985,10 @@ void io_service::do_nonblocking_connect(io_channel* ctx)
     if ((ctx->local_port_ != 0 || ctx->mask_ & YCM_UDP))
       ctx->socket_->bind(ctx->local_host_.c_str(), ctx->local_port_);
 
-    if (!(ctx->flags_ & YCF_MCAST))
+    if (!(ctx->mask_ & YCM_MCAST))
       ret = xxsocket::connect_n(ctx->socket_->native_handle(), ep);
     else
-      ret = ctx->join_multicast_group(ctx->socket_, (ctx->flags_ & YCF_MCAST_LOOPBACK) != 0);
+      ret = ctx->join_multicast_group();
     if (ret < 0)
     { // setup no blocking connect
       int error = xxsocket::get_last_errno();
@@ -998,7 +1008,7 @@ void io_service::do_nonblocking_connect(io_channel* ctx)
       }
     }
     else if (ret == 0)
-    { // connect server succed immidiately.
+    { // connect server successful immediately.
       register_descriptor(ctx->socket_->native_handle(), YEM_POLLIN);
       handle_connect_succeed(ctx, ctx->socket_);
     } // !!!NEVER GO HERE
@@ -1021,7 +1031,7 @@ void io_service::do_nonblocking_connect_completion(io_channel* ctx, fd_set* fds_
             0 &&
         error == 0)
     {
-      // remove write event avoid high-CPU occupation
+      // The nonblocking tcp handshake complete, remove write event avoid high-CPU occupation
       unregister_descriptor(ctx->socket_->native_handle(), YEM_POLLOUT);
       handle_connect_succeed(ctx, ctx->socket_);
     }
@@ -1042,7 +1052,7 @@ void io_service::do_nonblocking_accept(io_channel* ctx)
   // for server, local_port_ can't be zero
   if (ctx->local_host_.empty())
   {
-    if (!(ctx->flags_ & YCF_MCAST))
+    if ((ctx->mask_ & YCM_MCAST) == 0)
       ctx->local_host_ = ctx->remote_host_;
     else
       ctx->local_host_ = YASIO_ANY_ADDR(ipsv_);
@@ -1075,8 +1085,8 @@ void io_service::do_nonblocking_accept(io_channel* ctx)
 
       if (ctx->mask_ & YCM_UDP)
       {
-        if (ctx->flags_ & YCF_MCAST)
-          ctx->join_multicast_group(ctx->socket_, (ctx->flags_ & YCF_MCAST_LOOPBACK) != 0);
+        if (ctx->mask_ & YCM_MCAST)
+          ctx->join_multicast_group();
         ctx->buffer_.resize(YASIO_INET_BUFFER_SIZE);
       }
       register_descriptor(ctx->socket_->native_handle(), YEM_POLLIN);
@@ -1181,7 +1191,11 @@ transport_handle_t io_service::make_dgram_transport(io_channel* ctx, ip::endpoin
       return transport;
     }
     else
-      YASIO_SLOG("%s", "udp-server: open socket fd failed!");
+    {
+      error = xxsocket::get_last_errno();
+      YASIO_SLOG("udp-server: bind address failed, ec=%d, detail:%s", error,
+                 xxsocket::strerror(error));
+    }
   }
 
   return nullptr;
@@ -1202,6 +1216,10 @@ void io_service::handle_connect_succeed(transport_handle_t transport)
   }
   if (ctx->mask_ & YCM_TCP)
   {
+#if defined(__APPLE__) || defined(__linux__)
+    if (ctx->mask_ & YCM_TCP)
+      connection->set_optval(SOL_SOCKET, SO_NOSIGPIPE, (int)1);
+#endif
     // apply tcp keepalive options
     if (options_.tcp_keepalive_.onoff)
       connection->set_keepalive(options_.tcp_keepalive_.onoff, options_.tcp_keepalive_.idle,
@@ -1233,14 +1251,19 @@ transport_handle_t io_service::allocate_transport(io_channel* ctx, std::shared_p
   }
   else
     vp = operator new(sizeof(io_transport_posix));
-#if defined(YASIO_HAVE_KCP)
-  if (!(ctx->flags_ & YCF_KCP))
+
+  if (ctx->mask_ & YCM_POSIX)
     transport = new (vp) io_transport_posix(ctx, socket);
-  else
+  else if (ctx->mask_ & YCM_MCAST)
+    transport = new (vp) io_transport_mcast(ctx, socket);
+#if defined(YASIO_HAVE_KCP)
+  else if (ctx->mask_ & YCM_KCP)
     transport = new (vp) io_transport_kcp(ctx, socket);
-#else
-  transport = new (vp) io_transport_posix(ctx, socket);
 #endif
+  else
+    transport = new (vp) io_transport_posix(ctx, socket);
+
+  transport->set_primitives();
 
   return transport;
 }
@@ -1636,11 +1659,6 @@ void io_service::set_option(int option, ...) // lgtm [cpp/poorly-documented-func
           static_cast<highp_time_t>(va_arg(ap, int)) * MICROSECONDS_PER_SECOND;
       options_.connect_timeout_ =
           static_cast<highp_time_t>(va_arg(ap, int)) * MICROSECONDS_PER_SECOND;
-      int value = va_arg(ap, int);
-      if (value > 0)
-        options_.reconnect_timeout_ = static_cast<highp_time_t>(value) * MICROSECONDS_PER_SECOND;
-      else
-        options_.reconnect_timeout_ = -1; // means auto reconnect is disabled.
       break;
     }
     case YOPT_S_DEFERRED_EVENT:

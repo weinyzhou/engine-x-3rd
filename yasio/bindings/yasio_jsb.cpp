@@ -5,7 +5,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2012-2019 halx99
+Copyright (c) 2012-2020 HALX99
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -25,11 +25,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-#include "yasio/yasio_jsb.h"
+#include "yasio/bindings/yasio_jsb.h"
 #include "yasio/yasio.hpp"
 #include "yasio/ibstream.hpp"
 #include "yasio/obstream.hpp"
-#include "yasio/detail/ref_ptr.h"
+#include "yasio/detail/ref_ptr.hpp"
 
 #include "cocos2d.h"
 #include "scripting/js-bindings/manual/cocos2d_specifics.hpp"
@@ -1870,11 +1870,17 @@ void jsb_register_yasio(JSContext* ctx, JS::HandleObject global)
   YASIO_EXPORT_ENUM(YCM_TCP_SERVER);
   YASIO_EXPORT_ENUM(YCM_UDP_CLIENT);
   YASIO_EXPORT_ENUM(YCM_UDP_SERVER);
-  YASIO_EXPORT_ENUM(YCF_MCAST);
-  YASIO_EXPORT_ENUM(YCF_MCAST_LOOPBACK);
+  YASIO_EXPORT_ENUM(YCM_MCAST_CLIENT);
+  YASIO_EXPORT_ENUM(YCM_MCAST_SERVER);
 #if defined(YASIO_HAVE_KCP)
-  YASIO_EXPORT_ENUM(YCF_KCP);
+  YASIO_EXPORT_ENUM(YCM_KCP_CLIENT);
 #endif
+#if defined(YASIO_HAVE_SSL)
+  YASIO_EXPORT_ENUM(YCM_SSL_CLIENT);
+#endif
+
+  YASIO_EXPORT_ENUM(YCF_MCAST_LOOPBACK);
+
   YASIO_EXPORT_ENUM(YOPT_S_TIMEOUTS);
   YASIO_EXPORT_ENUM(YOPT_S_DEFERRED_EVENT);
   YASIO_EXPORT_ENUM(YOPT_S_TCP_KEEPALIVE);

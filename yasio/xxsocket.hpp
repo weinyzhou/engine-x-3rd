@@ -5,7 +5,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2012-2019 halx99
+Copyright (c) 2012-2020 HALX99
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -91,6 +91,9 @@ typedef int socklen_t;
 #  endif
 #  if !defined(ioctlsocket)
 #    define ioctlsocket ioctl
+#  endif
+#  if defined(__linux__)
+#    define SO_NOSIGPIPE MSG_NOSIGNAL
 #  endif
 typedef int socket_native_type;
 #  undef socket

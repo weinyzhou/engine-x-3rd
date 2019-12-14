@@ -65,6 +65,11 @@ SOFTWARE.
 */
 // #define YASIO_HAVE_KCP 1
 
+/*
+** Uncomment or add compiler flag -DYASIO_HAVE_SSL for SSL support
+*/
+#define YASIO_HAVE_SSL 1
+
 #if defined(YASIO_HEADER_ONLY)
 #  define YASIO__DECL inline
 #else
@@ -132,6 +137,9 @@ SOFTWARE.
 /* max pdu buffer length, avoid large memory allocation when application layer decode a huge length
  * field. */
 #define YASIO_MAX_PDU_BUFFER_SIZE static_cast<int>(1 * 1024 * 1024)
+
+// The max Initial Bytes To Strip for length field based frame decode mechanism
+#define YASIO_MAX_IBTS 32
 
 #include "strfmt.hpp"
 

@@ -223,13 +223,13 @@ void ssl_auto_handle::dispose()
 #endif
 
 /// io_channel
-io_channel::io_channel(io_service& service) : deadline_timer_(service)
+io_channel::io_channel(io_service& service, int index) : deadline_timer_(service)
 {
   socket_.reset(new xxsocket());
   state_             = YCS_CLOSED;
   dns_queries_state_ = YDQS_FAILED;
-
-  decode_len_ = [=](void* ptr, int len) { return this->__builtin_decode_len(ptr, len); };
+  index_             = index;
+  decode_len_        = [=](void* ptr, int len) { return this->__builtin_decode_len(ptr, len); };
 }
 
 int io_channel::join_multicast_group()
@@ -418,8 +418,8 @@ bool io_transport_posix::do_write(long long& max_wait_duration)
 }
 void io_transport_posix::set_primitives()
 {
-  this->write_cb_ = [=](const void* data, int len) { return socket_->send_i(data, len); };
-  this->read_cb_  = [=](void* data, int len) { return socket_->recv_i(data, len, 0); };
+  this->write_cb_ = [=](const void* data, int len) { return socket_->send(data, len); };
+  this->read_cb_  = [=](void* data, int len) { return socket_->recv(data, len, 0); };
 }
 
 // ----------------------- io_transport_mcast ----------------
@@ -432,11 +432,11 @@ io_transport_mcast::~io_transport_mcast() { ctx_->flags_ &= ~YCF_MCAST_HANDSHAKI
 void io_transport_mcast::set_primitives()
 {
   this->write_cb_ = [=](const void* data, int len) {
-    return socket_->sendto_i(data, len, ctx_->remote_eps_[0]);
+    return socket_->sendto(data, len, ctx_->remote_eps_[0]);
   };
   this->read_cb_ = [=](void* data, int len) {
     ip::endpoint peer;
-    int n = socket_->recvfrom_i(data, len, peer);
+    int n = socket_->recvfrom(data, len, peer);
 
     if (n > 0)
     { // record explicit peer endpoint
@@ -494,7 +494,7 @@ io_transport_kcp::io_transport_kcp(io_channel* ctx, std::shared_ptr<xxsocket>& s
   ::ikcp_nodelay(this->kcp_, 1, 16 /*MAX_WAIT_DURATION / 1000*/, 2, 1);
   ::ikcp_setoutput(this->kcp_, [](const char* buf, int len, ::ikcpcb* /*kcp*/, void* user) {
     auto t = (transport_handle_t)user;
-    return t->socket_->send_i(buf, len);
+    return t->socket_->send(buf, len);
   });
 }
 io_transport_kcp::~io_transport_kcp() { ::ikcp_release(this->kcp_); }
@@ -507,7 +507,7 @@ void io_transport_kcp::write(std::vector<char>&& buffer, std::function<void()>&&
 int io_transport_kcp::do_read(int& error)
 {
   char sbuf[2048];
-  int n = socket_->recv_i(sbuf, sizeof(sbuf));
+  int n = socket_->recv(sbuf, sizeof(sbuf));
   if (n > 0)
   { // ikcp in event always in service thread, so no need to lock, TODO: confirm.
     // 0: ok, -1: again, -3: error
@@ -543,39 +543,31 @@ bool io_transport_kcp::do_write(long long& max_wait_duration)
 #endif
 
 // ------------------------ io_service ------------------------
-
 io_service::io_service() : state_(io_service::state::IDLE), interrupter_()
 {
-  FD_ZERO(&fds_array_[read_op]);
-  FD_ZERO(&fds_array_[write_op]);
-  FD_ZERO(&fds_array_[except_op]);
-
-  maxfdp_ = 0;
-
-  options_.resolv_ = [=](std::vector<ip::endpoint>& eps, const char* host, unsigned short port) {
-    return this->__builtin_resolv(eps, host, port);
-  };
+  this->init(nullptr, 1);
 }
-
+io_service::io_service(int channel_count) : state_(io_service::state::IDLE), interrupter_()
+{
+  this->init(nullptr, channel_count);
+}
+io_service::io_service(const io_hostent* channel_eps, int channel_count)
+    : state_(io_service::state::IDLE), interrupter_()
+{
+  this->init(channel_eps, channel_count);
+}
 io_service::~io_service()
 {
   stop_service();
-  if (this->state_ == io_service::state::STOPPED)
-    cleanup();
-
-  for (auto o : tpool_)
-    ::operator delete(o);
-  tpool_.clear();
-
-  options_.resolv_ = nullptr;
-  options_.print_  = nullptr;
+  dispose();
 }
 
-void io_service::start_service(const io_hostent* channel_eps, int channel_count, io_event_cb_t cb)
+void io_service::start_service(io_event_cb_t cb)
 {
-  if (state_ == io_service::state::IDLE)
+  if (state_ == io_service::state::INITIALIZED)
   {
-    this->init(channel_eps, channel_count, cb);
+    if (cb)
+      options_.on_event_ = std::move(cb);
 
     this->state_ = io_service::state::RUNNING;
     if (!options_.no_new_thread_)
@@ -589,7 +581,6 @@ void io_service::start_service(const io_hostent* channel_eps, int channel_count,
       this->options_.deferred_event_ = false;
       run();
       this->state_ = io_service::state::STOPPED;
-      cleanup();
     }
   }
 }
@@ -601,13 +592,13 @@ void io_service::stop_service()
     this->state_ = io_service::state::STOPPING;
 
     this->interrupt();
-    this->wait_service();
+    this->join();
   }
   else if (this->state_ == io_service::state::STOPPING)
-    this->wait_service();
+    this->join();
 }
 
-void io_service::wait_service()
+void io_service::join()
 {
   if (this->worker_.joinable())
   {
@@ -615,39 +606,42 @@ void io_service::wait_service()
     {
       this->worker_.join();
       this->state_ = io_service::state::STOPPED;
-      cleanup();
+      clear_transports();
     }
     else
       errno = EAGAIN;
   }
 }
 
-void io_service::init(const io_hostent* channel_eps, int channel_count, io_event_cb_t& cb)
+void io_service::init(const io_hostent* channel_eps, int channel_count)
 {
   if (this->state_ != io_service::state::IDLE)
     return;
   if (channel_count <= 0)
     return;
-  if (cb)
-    options_.on_event_ = std::move(cb);
+
+  FD_ZERO(&fds_array_[read_op]);
+  FD_ZERO(&fds_array_[write_op]);
+  FD_ZERO(&fds_array_[except_op]);
+
+  maxfdp_ = 0;
+
+  options_.resolv_ = [=](std::vector<ip::endpoint>& eps, const char* host, unsigned short port) {
+    return this->__builtin_resolv(eps, host, port);
+  };
 
   register_descriptor(interrupter_.read_descriptor(), YEM_POLLIN);
 
-  // Initialize channels
-  for (auto i = 0; i < channel_count; ++i)
-  {
-    auto& channel_ep = channel_eps[i];
-    (void)new_channel(channel_ep);
-  }
+  // Create channels
+  create_channels(channel_eps, channel_count);
 
   this->state_ = io_service::state::INITIALIZED;
 }
 
-void io_service::cleanup()
+void io_service::dispose()
 {
   if (this->state_ == io_service::state::STOPPED)
   {
-    clear_transports();
     clear_channels();
     this->events_.clear();
     this->timer_queue_.clear();
@@ -655,18 +649,27 @@ void io_service::cleanup()
     unregister_descriptor(interrupter_.read_descriptor(), YEM_POLLIN);
 
     options_.on_event_ = nullptr;
+    options_.resolv_   = nullptr;
+    options_.print_    = nullptr;
+
+    /// purge transport pool memory
+    for (auto o : tpool_)
+      ::operator delete(o);
+    tpool_.clear();
 
     this->state_ = io_service::state::IDLE;
   }
 }
 
-io_channel* io_service::new_channel(const io_hostent& ep)
+void io_service::create_channels(const io_hostent* channel_eps, int channel_count)
 {
-  auto ctx = new io_channel(*this);
-  ctx->init(ep.host_, ep.port_);
-  ctx->index_ = static_cast<int>(this->channels_.size());
-  this->channels_.push_back(ctx);
-  return ctx;
+  for (auto i = 0; i < channel_count; ++i)
+  {
+    auto channel = new io_channel(*this, i);
+    if (channel_eps != nullptr)
+      channel->setup(channel_eps[i].host_, channel_eps[i].port_);
+    channels_.push_back(channel);
+  }
 }
 
 void io_service::clear_channels()
@@ -1261,8 +1264,8 @@ void io_service::do_nonblocking_accept_completion(io_channel* ctx, fd_set* fds_a
         else // YCM_UDP
         {
           ip::endpoint peer;
-          int n = ctx->socket_->recvfrom_i(&ctx->buffer_.front(),
-                                           static_cast<int>(ctx->buffer_.size()), peer);
+          int n = ctx->socket_->recvfrom(&ctx->buffer_.front(),
+                                         static_cast<int>(ctx->buffer_.size()), peer);
           if (n > 0)
           {
             YASIO_SLOGV("recvfrom peer: %s succeed.", peer.to_string().c_str());

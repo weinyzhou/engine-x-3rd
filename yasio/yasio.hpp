@@ -343,9 +343,9 @@ public:
   inline u_short local_port() { return local_port_; }
 
 private:
-  YASIO__DECL io_channel(io_service& service);
+  YASIO__DECL io_channel(io_service& service, int index);
 
-  inline void init(std::string host, u_short port)
+  inline void setup(std::string host, u_short port)
   {
     setup_remote_host(host);
     setup_remote_port(port);
@@ -381,7 +381,7 @@ private:
 
   highp_time_t dns_queries_timestamp_ = 0;
 
-  int index_    = -1;
+  int index_;
   int protocol_ = 0;
 
   // The deadline timer for resolve & connect
@@ -593,26 +593,12 @@ public:
 
 public:
   YASIO__DECL io_service();
+  YASIO__DECL io_service(int channel_count);
+  YASIO__DECL io_service(const io_hostent* channel_eps, int channel_count);
   YASIO__DECL ~io_service();
 
-  // start async socket io service
-  YASIO__DECL void start_service(const io_hostent* channel_eps, int channel_count,
-                                 io_event_cb_t cb);
-  void start_service(const io_hostent* channel_eps, io_event_cb_t cb)
-  {
-    this->start_service(channel_eps, 1, std::move(cb));
-  }
-  void start_service(std::vector<io_hostent> channel_eps, io_event_cb_t cb)
-  {
-    if (!channel_eps.empty())
-    {
-      this->start_service(&channel_eps.front(), static_cast<int>(channel_eps.size()),
-                          std::move(cb));
-    }
-  }
-
+  YASIO__DECL void start_service(io_event_cb_t cb);
   YASIO__DECL void stop_service();
-  YASIO__DECL void wait_service();
 
   bool is_running() const { return this->state_ == io_service::state::RUNNING; }
 
@@ -620,10 +606,6 @@ public:
   // events(CONNECT_RESPONSE,CONNECTION_LOST,PACKET), such cocos2d-x opengl or
   // any other game engines' render thread.
   YASIO__DECL void dispatch(int count = 512);
-
-  // This function will be removed in the future, please use dispatch instead.
-  YASIO_OBSOLETE_DEPRECATE(yasio::inet::io_service::dispatch)
-  YASIO__DECL void dispatch_events(int count = 512) { dispatch(count); }
 
   // set option, see enum YOPT_XXX
   YASIO__DECL void set_option(int option, ...);
@@ -647,8 +629,12 @@ public:
 
   YASIO__DECL io_channel* cindex_to_handle(size_t cindex) const;
 
+  int write(transport_handle_t transport, std::vector<char> buffer)
+  {
+    return write(transport, std::move(buffer), nullptr);
+  }
   YASIO__DECL int write(transport_handle_t transport, std::vector<char> buffer,
-                        std::function<void()> = nullptr);
+                        std::function<void()>);
 
   // The deadlien_timer support, !important, the callback is called on the thread of io_service
   deadline_timer_ptr schedule(highp_time_t duration, timer_cb_t cb)
@@ -656,8 +642,6 @@ public:
     return schedule(std::chrono::microseconds(duration), std::move(cb));
   }
   YASIO__DECL deadline_timer_ptr schedule(const std::chrono::microseconds& duration, timer_cb_t);
-
-  YASIO__DECL void cleanup();
 
   YASIO__DECL int __builtin_resolv(std::vector<ip::endpoint>& endpoints, const char* hostname,
                                    unsigned short port = 0);
@@ -682,7 +666,11 @@ private:
   // Start a async resolve, It's only for internal use
   YASIO__DECL void start_resolve(io_channel*);
 
-  YASIO__DECL void init(const io_hostent* channel_eps, int channel_count, io_event_cb_t& cb);
+  YASIO__DECL void init(const io_hostent* channel_eps /* could be nullptr */, int channel_count);
+  YASIO__DECL void dispose();
+
+  /* Call by stop_service, wait io_service thread exit properly & do cleanup */
+  YASIO__DECL void join();
 
   YASIO__DECL void open_internal(io_channel*, bool ignore_state = false);
 
@@ -740,7 +728,7 @@ private:
   // new/delete client socket connection channel
   // please call this at initialization, don't new channel at runtime
   // dynmaically: because this API is not thread safe.
-  YASIO__DECL io_channel* new_channel(const io_hostent& ep);
+  YASIO__DECL void create_channels(const io_hostent* eps, int count);
   // Clear all channels after service exit.
   YASIO__DECL void clear_channels();   // destroy all channels
   YASIO__DECL void clear_transports(); // destroy all transports
@@ -841,7 +829,7 @@ private:
 } // namespace inet
 } /* namespace yasio */
 
-#define yasio_shared_service yasio::gc::singleton<yasio::inet::io_service>::instance()
+#define yasio_shared_service yasio::gc::singleton<yasio::inet::io_service>::instance
 
 #if defined(YASIO_HEADER_ONLY)
 #  include "yasio/yasio.cpp" // lgtm [cpp/include-non-header]

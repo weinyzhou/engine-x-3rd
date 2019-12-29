@@ -1393,34 +1393,31 @@ ZEXTERN int ZEXPORT unzReadCurrentFile(unzFile file, voidp buf, uint32_t len)
 
         if ((s->pfile_in_zip_read->compression_method == 0) || (s->pfile_in_zip_read->raw))
         {
-            uint32_t i = 0;
-            uint32_t copy = 0;
+            uint32_t n = 0;
 
             if ((s->pfile_in_zip_read->stream.avail_in == 0) &&
                 (s->pfile_in_zip_read->rest_read_compressed == 0))
                 return (read == 0) ? UNZ_EOF : read;
 
             if (s->pfile_in_zip_read->stream.avail_out < s->pfile_in_zip_read->stream.avail_in)
-                copy = s->pfile_in_zip_read->stream.avail_out;
+                n = s->pfile_in_zip_read->stream.avail_out;
             else
-                copy = s->pfile_in_zip_read->stream.avail_in;
+                n = s->pfile_in_zip_read->stream.avail_in;
 
-            for (i = 0; i < copy; i++)
-                *(s->pfile_in_zip_read->stream.next_out + i) =
-                        *(s->pfile_in_zip_read->stream.next_in + i);
+            memcpy(s->pfile_in_zip_read->stream.next_out, s->pfile_in_zip_read->stream.next_in, n);
 
-            s->pfile_in_zip_read->total_out_64 = s->pfile_in_zip_read->total_out_64 + copy;
-            s->pfile_in_zip_read->rest_read_uncompressed -= copy;
+            s->pfile_in_zip_read->total_out_64 = s->pfile_in_zip_read->total_out_64 + n;
+            s->pfile_in_zip_read->rest_read_uncompressed -= n;
             s->pfile_in_zip_read->crc32 = (uint32_t)crc32(s->pfile_in_zip_read->crc32,
-                                s->pfile_in_zip_read->stream.next_out, copy);
+                                s->pfile_in_zip_read->stream.next_out, n);
 
-            s->pfile_in_zip_read->stream.avail_in -= copy;
-            s->pfile_in_zip_read->stream.avail_out -= copy;
-            s->pfile_in_zip_read->stream.next_out += copy;
-            s->pfile_in_zip_read->stream.next_in += copy;
-            s->pfile_in_zip_read->stream.total_out += copy;
+            s->pfile_in_zip_read->stream.avail_in -= n;
+            s->pfile_in_zip_read->stream.avail_out -= n;
+            s->pfile_in_zip_read->stream.next_out += n;
+            s->pfile_in_zip_read->stream.next_in += n;
+            s->pfile_in_zip_read->stream.total_out += n;
 
-            read += copy;
+            read += n;
         }
         else if (s->pfile_in_zip_read->compression_method == Z_BZIP2ED)
         {
@@ -1963,7 +1960,8 @@ ZEXTERN int ZEXPORT unzSeek64(unzFile file, uint64_t offset, int origin)
         s->pfile_in_zip_read->stream.avail_in = 0;
         s->pfile_in_zip_read->stream.next_in = 0;
 
-        s->pfile_in_zip_read->pos_in_zipfile = s->pfile_in_zip_read->offset_local_extrafield + position;
+        s->pfile_in_zip_read->pos_in_zipfile = s->pfile_in_zip_read->offset_local_extrafield + 
+            s->pfile_in_zip_read->size_local_extrafield + position;
         s->pfile_in_zip_read->rest_read_compressed = s->cur_file_info.compressed_size - position;
     }
 

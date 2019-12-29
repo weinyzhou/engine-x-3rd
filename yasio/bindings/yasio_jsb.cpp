@@ -1505,7 +1505,7 @@ static bool jsb_yasio_io_service__ctor(JSContext* ctx, uint32_t argc, jsval* vp)
       cobj = new (std::nothrow) io_service(!hostents.empty() ? &hostents.front() : nullptr,
                                            std::max(1, (int)hostents.size()));
     }
-    if (arg0.isObject())
+    else if (arg0.isObject())
     {
       inet::io_hostent ioh;
       jsval_to_hostent(ctx, arg0, &ioh);
@@ -1736,6 +1736,7 @@ bool js_yasio_io_service_set_option(JSContext* ctx, uint32_t argc, jsval* vp)
       auto opt  = arg0.toInt32();
       switch (opt)
       {
+        case YOPT_C_LOCAL_HOST:
         case YOPT_C_REMOTE_HOST:
           if (args[2].isString())
           {
@@ -1743,10 +1744,15 @@ bool js_yasio_io_service_set_option(JSContext* ctx, uint32_t argc, jsval* vp)
             service->set_option(opt, args[1].toInt32(), str.get());
           }
           break;
-        case YOPT_C_REMOTE_PORT:
+#if YASIO_VERSION_NUM >= 0x033100
+        case YOPT_C_LFBFD_IBTS:
+#endif
+        case YOPT_S_TIMEOUTS:
         case YOPT_C_LOCAL_PORT:
+        case YOPT_C_REMOTE_PORT:
           service->set_option(opt, args[1].toInt32(), args[2].toInt32());
           break;
+        case YOPT_C_LOCAL_ENDPOINT:
         case YOPT_C_REMOTE_ENDPOINT:
           if (args[2].isString())
           {
@@ -1921,17 +1927,19 @@ void jsb_register_yasio(JSContext* ctx, JS::HandleObject global)
   YASIO_EXPORT_ENUM(YCF_MCAST_LOOPBACK);
 
   YASIO_EXPORT_ENUM(YOPT_S_TIMEOUTS);
-  YASIO_EXPORT_ENUM(YOPT_S_DEFERRED_EVENT);
   YASIO_EXPORT_ENUM(YOPT_S_TCP_KEEPALIVE);
   YASIO_EXPORT_ENUM(YOPT_S_EVENT_CB);
   YASIO_EXPORT_ENUM(YOPT_C_LFBFD_PARAMS);
+  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
   YASIO_EXPORT_ENUM(YOPT_C_LOCAL_PORT);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_HOST);
-  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
+  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_HOST);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_ENDPOINT);
+  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_ENDPOINT);
   YASIO_EXPORT_ENUM(YEK_CONNECT_RESPONSE);
   YASIO_EXPORT_ENUM(YEK_CONNECTION_LOST);
   YASIO_EXPORT_ENUM(YEK_PACKET);
+
   YASIO_EXPORT_ENUM(SEEK_CUR);
   YASIO_EXPORT_ENUM(SEEK_SET);
   YASIO_EXPORT_ENUM(SEEK_END);

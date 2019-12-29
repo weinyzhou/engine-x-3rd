@@ -457,7 +457,7 @@ protected:
   unsigned int id_;
 
   char buffer_[YASIO_INET_BUFFER_SIZE]; // recv buffer, 64K
-  int offset_ = 0;                      // recv buffer offset
+  int wpos_ = 0;                        // recv buffer write pos
 
   std::vector<char> expected_packet_;
   int expected_size_ = -1;
@@ -523,6 +523,7 @@ class io_transport_kcp : public io_transport
 public:
   YASIO__DECL io_transport_kcp(io_channel* ctx, std::shared_ptr<xxsocket>& s);
   YASIO__DECL ~io_transport_kcp();
+  ikcpcb* internal_object() { return kcp_; }
 
 protected:
   YASIO__DECL void write(std::vector<char>&&, std::function<void()>&&) override;
@@ -584,16 +585,16 @@ class io_service // lgtm [cpp/class-many-fields]
 public:
   enum class state
   {
+    UNINITIALIZED,
     IDLE,
-    INITIALIZED,
     RUNNING,
     STOPPING,
-    STOPPED,
   };
 
 public:
   YASIO__DECL io_service();
   YASIO__DECL io_service(int channel_count);
+  YASIO__DECL io_service(const io_hostent& channel_eps);
   YASIO__DECL io_service(const io_hostent* channel_eps, int channel_count);
   YASIO__DECL ~io_service();
 
@@ -608,7 +609,8 @@ public:
   YASIO__DECL void dispatch(int count = 512);
 
   // set option, see enum YOPT_XXX
-  YASIO__DECL void set_option(int option, ...);
+  YASIO__DECL void set_option(int opt, ...);
+  YASIO__DECL void set_option_internal(int opt, va_list args);
 
   // open a channel, default: YCM_TCP_CLIENT
   YASIO__DECL void open(size_t cindex, int channel_mask = YCM_TCP_CLIENT);
@@ -668,6 +670,8 @@ private:
 
   YASIO__DECL void init(const io_hostent* channel_eps /* could be nullptr */, int channel_count);
   YASIO__DECL void dispose();
+
+  YASIO__DECL void on_service_stopped();
 
   /* Call by stop_service, wait io_service thread exit properly & do cleanup */
   YASIO__DECL void join();
@@ -751,7 +755,7 @@ private:
   YASIO__DECL transport_handle_t make_dgram_transport(io_channel*, ip::endpoint& peer);
 
 private:
-  state state_; // The service state
+  state state_ = state::UNINITIALIZED; // The service state
   std::thread worker_;
   std::thread::id worker_id_;
 

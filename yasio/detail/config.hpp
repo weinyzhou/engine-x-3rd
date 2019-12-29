@@ -32,7 +32,7 @@ SOFTWARE.
 ** Uncomment or add compiler flag -DYASIO_HEADER_ONLY to enable yasio core implementation header
 ** only
 */
-// #define YASIO_HEADER_ONLY 1
+#define YASIO_HEADER_ONLY 1
 
 /*
 ** Uncomment or add compiler flag -DYASIO_VERBOS_LOG to enable verbos log
@@ -68,7 +68,7 @@ SOFTWARE.
 /*
 ** Uncomment or add compiler flag -DYASIO_HAVE_SSL for SSL support
 */
-// #define YASIO_HAVE_SSL 1
+#define YASIO_HAVE_SSL 1
 
 #if defined(YASIO_HEADER_ONLY)
 #  define YASIO__DECL inline

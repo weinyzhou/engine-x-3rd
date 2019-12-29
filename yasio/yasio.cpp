@@ -180,10 +180,10 @@ class a_pdu
 {
 public:
   a_pdu(std::vector<char>&& buffer, std::function<void()>&& handler)
-      : offset_(0), buffer_(std::move(buffer)), handler_(std::move(handler))
+      : rpos_(0), buffer_(std::move(buffer)), handler_(std::move(handler))
   {}
 
-  size_t offset_;            // offset
+  size_t rpos_;              // read pos from sending buffer
   std::vector<char> buffer_; // sending data buffer
   std::function<void()> handler_;
 #if !defined(YASIO_DISABLE_OBJECT_POOL)
@@ -353,7 +353,7 @@ void io_transport_posix::write(std::vector<char>&& buffer, std::function<void()>
 }
 int io_transport_posix::do_read(int& error)
 {
-  int n = read_cb_(buffer_ + offset_, sizeof(buffer_) - offset_);
+  int n = read_cb_(buffer_ + wpos_, sizeof(buffer_) - wpos_);
   error = n < 0 ? xxsocket::get_last_errno() : 0;
   return n;
 }
@@ -365,13 +365,13 @@ bool io_transport_posix::do_write(long long& max_wait_duration)
     if (!socket_->is_open())
       break;
 
-    int error     = -1;
-    a_pdu_ptr* pv = send_queue_.peek();
-    if (pv != nullptr)
+    int error = -1;
+    auto wrap = send_queue_.peek();
+    if (wrap)
     {
-      auto v                 = *pv;
-      auto outstanding_bytes = static_cast<int>(v->buffer_.size() - v->offset_);
-      int n                  = write_cb_(v->buffer_.data() + v->offset_, outstanding_bytes);
+      auto v                 = *wrap;
+      auto outstanding_bytes = static_cast<int>(v->buffer_.size() - v->rpos_);
+      int n                  = write_cb_(v->buffer_.data() + v->rpos_, outstanding_bytes);
       if (n == outstanding_bytes)
       { // All pdu bytes sent.
         send_queue_.pop();
@@ -389,8 +389,8 @@ bool io_transport_posix::do_write(long long& max_wait_duration)
       else if (n > 0)
       {
         // #performance: change offset only, remain data will be send next loop.
-        v->offset_ += n;
-        outstanding_bytes = static_cast<int>(v->buffer_.size() - v->offset_);
+        v->rpos_ += n;
+        outstanding_bytes = static_cast<int>(v->buffer_.size() - v->rpos_);
       }
       else
       { // n <= 0
@@ -400,7 +400,6 @@ bool io_transport_posix::do_write(long long& max_wait_duration)
           if (((ctx_->mask_ & YCM_UDP) == 0) || error != EPERM)
           { // Fix issue: #126, simply ignore EPERM for UDP
             set_last_errno(error);
-            offset_ = n;
             break;
           }
         }
@@ -491,7 +490,7 @@ io_transport_kcp::io_transport_kcp(io_channel* ctx, std::shared_ptr<xxsocket>& s
     : io_transport(ctx, s), kcp_(nullptr)
 {
   this->kcp_ = ::ikcp_create(0, this);
-  ::ikcp_nodelay(this->kcp_, 1, 16 /*MAX_WAIT_DURATION / 1000*/, 2, 1);
+  ::ikcp_nodelay(this->kcp_, 1, 10 /*MAX_WAIT_DURATION / 1000*/, 2, 1);
   ::ikcp_setoutput(this->kcp_, [](const char* buf, int len, ::ikcpcb* /*kcp*/, void* user) {
     auto t = (transport_handle_t)user;
     return t->socket_->send(buf, len);
@@ -506,13 +505,20 @@ void io_transport_kcp::write(std::vector<char>&& buffer, std::function<void()>&&
 }
 int io_transport_kcp::do_read(int& error)
 {
-  char sbuf[2048];
+  char sbuf[YASIO_INET_BUFFER_SIZE];
   int n = socket_->recv(sbuf, sizeof(sbuf));
   if (n > 0)
   { // ikcp in event always in service thread, so no need to lock, TODO: confirm.
     // 0: ok, -1: again, -3: error
     if (0 == ::ikcp_input(kcp_, sbuf, n))
-      n = ::ikcp_recv(kcp_, buffer_ + offset_, sizeof(buffer_) - offset_);
+    {
+      n = ::ikcp_recv(kcp_, buffer_ + wpos_, sizeof(buffer_) - wpos_);
+      if (n < 0) // EAGAIN/EWOULDBLOCK
+      {
+        n     = -1;
+        error = EWOULDBLOCK;
+      }
+    }
     else
     { // current, simply regards -1,-3 as error and trigger connection lost event.
       n     = 0;
@@ -543,16 +549,10 @@ bool io_transport_kcp::do_write(long long& max_wait_duration)
 #endif
 
 // ------------------------ io_service ------------------------
-io_service::io_service() : state_(io_service::state::IDLE), interrupter_()
-{
-  this->init(nullptr, 1);
-}
-io_service::io_service(int channel_count) : state_(io_service::state::IDLE), interrupter_()
-{
-  this->init(nullptr, channel_count);
-}
+io_service::io_service() { this->init(nullptr, 1); }
+io_service::io_service(int channel_count) { this->init(nullptr, channel_count); }
+io_service::io_service(const io_hostent& channel_ep) { this->init(&channel_ep, 1); }
 io_service::io_service(const io_hostent* channel_eps, int channel_count)
-    : state_(io_service::state::IDLE), interrupter_()
 {
   this->init(channel_eps, channel_count);
 }
@@ -561,10 +561,9 @@ io_service::~io_service()
   stop_service();
   dispose();
 }
-
 void io_service::start_service(io_event_cb_t cb)
 {
-  if (state_ == io_service::state::INITIALIZED)
+  if (state_ == io_service::state::IDLE)
   {
     if (cb)
       options_.on_event_ = std::move(cb);
@@ -580,11 +579,10 @@ void io_service::start_service(io_event_cb_t cb)
       this->worker_id_               = std::this_thread::get_id();
       this->options_.deferred_event_ = false;
       run();
-      this->state_ = io_service::state::STOPPED;
+      on_service_stopped();
     }
   }
 }
-
 void io_service::stop_service()
 {
   if (this->state_ == io_service::state::RUNNING)
@@ -597,6 +595,11 @@ void io_service::stop_service()
   else if (this->state_ == io_service::state::STOPPING)
     this->join();
 }
+void io_service::on_service_stopped()
+{
+  clear_transports();
+  this->state_ = io_service::state::IDLE;
+}
 
 void io_service::join()
 {
@@ -605,8 +608,7 @@ void io_service::join()
     if (std::this_thread::get_id() != this->worker_id_)
     {
       this->worker_.join();
-      this->state_ = io_service::state::STOPPED;
-      clear_transports();
+      on_service_stopped();
     }
     else
       errno = EAGAIN;
@@ -615,7 +617,7 @@ void io_service::join()
 
 void io_service::init(const io_hostent* channel_eps, int channel_count)
 {
-  if (this->state_ != io_service::state::IDLE)
+  if (this->state_ != io_service::state::UNINITIALIZED)
     return;
   if (channel_count <= 0)
     return;
@@ -635,12 +637,12 @@ void io_service::init(const io_hostent* channel_eps, int channel_count)
   // Create channels
   create_channels(channel_eps, channel_count);
 
-  this->state_ = io_service::state::INITIALIZED;
+  this->state_ = io_service::state::IDLE;
 }
 
 void io_service::dispose()
 {
-  if (this->state_ == io_service::state::STOPPED)
+  if (this->state_ == io_service::state::IDLE)
   {
     clear_channels();
     this->events_.clear();
@@ -657,7 +659,7 @@ void io_service::dispose()
       ::operator delete(o);
     tpool_.clear();
 
-    this->state_ = io_service::state::IDLE;
+    this->state_ = io_service::state::UNINITIALIZED;
   }
 }
 
@@ -926,8 +928,8 @@ void io_service::handle_close(transport_handle_t transport)
   auto ctx = ptr->ctx_;
   auto ec  = ptr->error_;
   // @Because we can't retrive peer endpoint when connect reset by peer, so use id to trace.
-  YASIO_SLOG("[index: %d] the connection #%u is lost, offset:%d, ec=%d, detail:%s", ctx->index_,
-             ptr->id_, ptr->offset_, ec, io_service::strerror(ec));
+  YASIO_SLOG("[index: %d] the connection #%u is lost, ec=%d, detail:%s", ctx->index_, ptr->id_, ec,
+             io_service::strerror(ec));
 
   cleanup_io(ptr);
 
@@ -977,9 +979,10 @@ int io_service::write(transport_handle_t transport, std::vector<char> buffer,
   {
     if (!buffer.empty())
     {
+      auto n = static_cast<int>(buffer.size());
       transport->write(std::move(buffer), std::move(handler));
       this->interrupt();
-      return static_cast<int>(buffer.size());
+      return n;
     }
     return 0;
   }
@@ -1471,7 +1474,7 @@ bool io_service::do_read(transport_handle_t transport, fd_set* fds_array,
 #endif
       if (transport->expected_size_ == -1)
       { // decode length
-        int length = transport->ctx_->decode_len_(transport->buffer_, transport->offset_ + n);
+        int length = transport->ctx_->decode_len_(transport->buffer_, transport->wpos_ + n);
         if (length > 0)
         {
           int bytes_strip =
@@ -1482,12 +1485,8 @@ bool io_service::do_read(transport_handle_t transport, fd_set* fds_array,
                          YASIO_MAX_PDU_BUFFER_SIZE)); // #perfomance, avoid memory reallocte.
           unpack(transport, transport->expected_size_, n, bytes_strip, max_wait_duration);
         }
-        else if (length == 0)
-        {
-          // header insufficient, wait readfd ready at
-          // next event step.
-          transport->offset_ += n;
-        }
+        else if (length == 0) // header insufficient, wait readfd ready at next event step.
+          transport->wpos_ += n;
         else
         {
           transport->set_last_errno(YERR_DPL_ILLEGAL_PDU);
@@ -1504,7 +1503,6 @@ bool io_service::do_read(transport_handle_t transport, fd_set* fds_array,
     else
     { // n == 0: The return value will be 0 when the peer has performed an orderly shutdown.
       transport->set_last_errno(error);
-      transport->offset_ = n;
       break;
     }
 
@@ -1518,17 +1516,17 @@ bool io_service::do_read(transport_handle_t transport, fd_set* fds_array,
 void io_service::unpack(transport_handle_t transport, int bytes_expected, int bytes_transferred,
                         int bytes_strip, long long& max_wait_duration)
 {
-  auto bytes_available = bytes_transferred + transport->offset_;
+  auto bytes_available = bytes_transferred + transport->wpos_;
   transport->expected_packet_.insert(
       transport->expected_packet_.end(), transport->buffer_ + bytes_strip,
       transport->buffer_ + (std::min)(bytes_expected, bytes_available));
 
-  transport->offset_ = bytes_available - bytes_expected; // set offset to bytes of remain buffer
-  if (transport->offset_ >= 0)
-  {                             // pdu received properly
-    if (transport->offset_ > 0) // move remain data to head of buffer and hold offset.
+  transport->wpos_ = bytes_available - bytes_expected; // set offset to bytes of remain buffer
+  if (transport->wpos_ >= 0)
+  {                           // pdu received properly
+    if (transport->wpos_ > 0) // move remain data to head of buffer and hold offset.
     {
-      ::memmove(transport->buffer_, transport->buffer_ + bytes_expected, transport->offset_);
+      ::memmove(transport->buffer_, transport->buffer_ + bytes_expected, transport->wpos_);
       // not all data consumed, so add events for this context
       max_wait_duration = 0;
     }
@@ -1541,7 +1539,7 @@ void io_service::unpack(transport_handle_t transport, int bytes_expected, int by
         new io_event(transport->cindex(), YEK_PACKET, transport->fetch_packet(), transport)));
   }
   else /* all buffer consumed, set offset to ZERO, pdu incomplete, continue recv remain data. */
-    transport->offset_ = 0;
+    transport->wpos_ = 0;
 }
 
 deadline_timer_ptr io_service::schedule(const std::chrono::microseconds& duration, timer_cb_t cb)
@@ -1643,11 +1641,11 @@ void io_service::perform_timers()
 int io_service::do_evpoll(fd_set* fdsa, long long max_wait_duration)
 {
   /*
-@Optimize, swap nfds, make sure do_read & do_write event chould
-be perform when no need to call socket.select However, the
-connection exception will detected through do_read or do_write,
-but it's ok.
-*/
+   @Optimize, swap nfds, make sure do_read & do_write event chould
+   be perform when no need to call socket.select However, the
+   connection exception will detected through do_read or do_write,
+   but it's ok.
+   */
   int nfds = 1;
 
   ::memcpy(fdsa, this->fds_array_, sizeof(this->fds_array_));
@@ -1795,13 +1793,16 @@ const char* io_service::strerror(int error)
       return xxsocket::strerror(error);
   }
 }
-
-void io_service::set_option(int option, ...) // lgtm [cpp/poorly-documented-function]
+void io_service::set_option(int opt, ...)
 {
   va_list ap;
-  va_start(ap, option);
-
-  switch (option)
+  va_start(ap, opt);
+  set_option_internal(opt, ap);
+  va_end(ap);
+}
+void io_service::set_option_internal(int opt, va_list ap) // lgtm [cpp/poorly-documented-function]
+{
+  switch (opt)
   {
     case YOPT_S_TIMEOUTS: {
       options_.dns_cache_timeout_ =
@@ -1849,8 +1850,8 @@ void io_service::set_option(int option, ...) // lgtm [cpp/poorly-documented-func
       auto channel = cindex_to_handle(static_cast<size_t>(va_arg(ap, int)));
       if (channel)
         channel->decode_len_ = *va_arg(ap, decode_len_fn_t*);
+      break;
     }
-    break;
     case YOPT_C_LOCAL_HOST: {
       auto channel = cindex_to_handle(static_cast<size_t>(va_arg(ap, int)));
       if (channel)
@@ -1867,14 +1868,14 @@ void io_service::set_option(int option, ...) // lgtm [cpp/poorly-documented-func
       auto channel = cindex_to_handle(static_cast<size_t>(va_arg(ap, int)));
       if (channel)
         channel->setup_remote_host(va_arg(ap, const char*));
+      break;
     }
-    break;
     case YOPT_C_REMOTE_PORT: {
       auto channel = cindex_to_handle(static_cast<size_t>(va_arg(ap, int)));
       if (channel)
         channel->setup_remote_port((u_short)va_arg(ap, int));
+      break;
     }
-    break;
     case YOPT_C_LOCAL_ENDPOINT: {
       auto channel = cindex_to_handle(static_cast<size_t>(va_arg(ap, int)));
       if (channel != nullptr)
@@ -1882,8 +1883,8 @@ void io_service::set_option(int option, ...) // lgtm [cpp/poorly-documented-func
         channel->local_host_ = (va_arg(ap, const char*));
         channel->local_port_ = ((u_short)va_arg(ap, int));
       }
+      break;
     }
-    break;
     case YOPT_C_REMOTE_ENDPOINT: {
       auto channel = cindex_to_handle(static_cast<size_t>(va_arg(ap, int)));
       if (channel)
@@ -1891,6 +1892,7 @@ void io_service::set_option(int option, ...) // lgtm [cpp/poorly-documented-func
         channel->setup_remote_host(va_arg(ap, const char*));
         channel->setup_remote_port((u_short)va_arg(ap, int));
       }
+      break;
     }
     case YOPT_C_MOD_FLAGS: {
       auto channel = cindex_to_handle(static_cast<size_t>(va_arg(ap, int)));
@@ -1919,11 +1921,9 @@ void io_service::set_option(int option, ...) // lgtm [cpp/poorly-documented-func
         auto optlen   = va_arg(ap, int);
         obj->socket_->set_optval(optlevel, optname, optval, optlen);
       }
+      break;
     }
-    break;
   }
-
-  va_end(ap);
 }
 } // namespace inet
 } // namespace yasio

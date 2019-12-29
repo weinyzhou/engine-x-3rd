@@ -70,13 +70,15 @@ inline void fast_split(_CStr s, size_t slen, typename std::remove_pointer<_CStr>
 
 extern "C" {
 
+typedef int (*YASIO_PFNRESOLV)(const char* host, intptr_t sbuf);
+typedef void (*YASIO_PFNPRINT)(const char*);
 YASIO_NI_API void yasio_start(int channel_count,
-                             void (*callback)(uint32_t emask, int cidx, intptr_t sid,
-                                              intptr_t bytes, int len))
+                              void (*event_cb)(uint32_t emask, int cidx, intptr_t sid,
+                                               intptr_t bytes, int len))
 {
   yasio_shared_service(channel_count)->start_service([=](event_ptr e) {
     uint32_t emask = ((e->kind() << 16) & 0xffff0000) | (e->status() & 0xffff);
-    callback(emask, e->cindex(), reinterpret_cast<intptr_t>(e->transport()),
+    event_cb(emask, e->cindex(), reinterpret_cast<intptr_t>(e->transport()),
              reinterpret_cast<intptr_t>(!e->packet().empty() ? e->packet().data() : nullptr),
              static_cast<int>(e->packet().size()));
   });
@@ -118,8 +120,8 @@ YASIO_NI_API void yasio_set_option(int opt, const char* params)
         *e = ch;
       });
       service->set_option(opt, cidx, ip.c_str(), port);
+      break;
     }
-    break;
     case YOPT_C_LFBFD_PARAMS:
     case YOPT_S_TIMEOUTS: {
       int args[YASIO_MAX_OPTION_ARGC];
@@ -136,10 +138,22 @@ YASIO_NI_API void yasio_set_option(int opt, const char* params)
       if (opt == YOPT_C_LFBFD_PARAMS)
         service->set_option(opt, args[0], args[1], args[2], args[3], args[4]);
       else
-        service->set_option(opt, args[0], args[1], args[2]);
+        service->set_option(opt, args[0], args[1]);
       break;
     }
   }
+}
+YASIO_NI_API void yasio_set_option_vp(int opt, ...)
+{
+  auto service = yasio_shared_service();
+
+  va_list ap;
+  va_start(ap, opt);
+
+  if (opt != YOPT_S_RESOLV_FN && opt != YOPT_S_PRINT_FN)
+    service->set_option_internal(opt, ap);
+
+  va_end(ap);
 }
 YASIO_NI_API void yasio_open(int cindex, int kind) { yasio_shared_service()->open(cindex, kind); }
 YASIO_NI_API void yasio_close(int cindex) { yasio_shared_service()->close(cindex); }

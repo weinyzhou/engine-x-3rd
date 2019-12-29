@@ -189,4 +189,13 @@ TOLUA_API int tolua_fast_isa(lua_State *L, int mt_indexa, int mt_indexb, int sup
 }
 #endif
 
+#if LUA_VERSION_NUM >= 502
+#define lua_setfenv lua_setuservalue
+#define lua_getfenv lua_getuservalue
+#define lua_open luaL_newstate
+#if !defined(LUA_COMPAT_5_1) && !defined(LUA_COMPAT_ALL)
+#define lua_objlen(L,i)		lua_rawlen(L, (i))
+#endif
+#endif
+
 #endif

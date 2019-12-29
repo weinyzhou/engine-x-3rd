@@ -301,9 +301,9 @@ static int tolua_bnd_getpeer(lua_State* L) {
 static int tolua_pushglobaltable(lua_State* L)
 {
 #if LUA_VERSION_NUM >= 502
-    lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
+    return lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
 #else
-    lua_pushvalue(L, LUA_GLOBALSINDEX);
+    return lua_pushvalue(L, LUA_GLOBALSINDEX);
 #endif
 }
 

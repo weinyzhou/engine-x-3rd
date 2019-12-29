@@ -298,6 +298,15 @@ static int tolua_bnd_getpeer(lua_State* L) {
 };
 #endif
 
+static int tolua_pushglobaltable(lua_State* L)
+{
+#if LUA_VERSION_NUM >= 502
+    lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
+#else
+    lua_pushvalue(L, LUA_GLOBALSINDEX);
+#endif
+}
+
 /* Get the index which have been override
     2014.6.5 by SunLightJuly
  */
@@ -531,7 +540,7 @@ TOLUA_API void tolua_beginmodule (lua_State* L, const char* name)
         }
 //---- by SunLightJuly, 2014.6.5
     } else {
-        lua_pushvalue(L,LUA_GLOBALSINDEX);
+        tolua_pushglobaltable(L);
     }
 }
 
@@ -566,7 +575,7 @@ TOLUA_API void tolua_module (lua_State* L, const char* name, int hasvar)
     else
     {
         /* global table */
-        lua_pushvalue(L,LUA_GLOBALSINDEX);
+        tolua_pushglobaltable(L);
     }
     if (hasvar)
     {
@@ -594,7 +603,7 @@ TOLUA_API void tolua_module (lua_State* L, const char* name, int hasvar)
     else
     {
         /* global table */
-        lua_pushvalue(L,LUA_GLOBALSINDEX);
+        tolua_pushglobaltable(L);
     }
     if (hasvar)
     {

@@ -57,6 +57,16 @@ SOFTWARE.
 // #define YASIO_DISABLE_OBJECT_POOL 1
 
 /*
+** Uncomment or add compiler flag -DYASIO_ENABLE_ARES_PROFILER to test async resolve performance
+*/
+#define YASIO_ENABLE_ARES_PROFILER 1
+
+/*
+** Uncomment or add compiler flag -DYASIO_HAVE_CARES to use c-ares to perform async resolve
+*/
+#define YASIO_HAVE_CARES 1
+
+/*
 ** Uncomment or add compiler flag -DYASIO_HAVE_KCP for kcp support
 ** Remember, before thus, please ensure:
 ** 1. Execute: `git submodule update --init --recursive` to clone the kcp sources.

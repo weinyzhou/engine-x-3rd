@@ -21,6 +21,7 @@ option(BUILD_EXT_CURL "Build with internal curl support" ON)
 option(BUILD_EXT_UNZIP "Build with internal unzip support" ON)
 option(BUILD_EXT_FLATBUFFERS "Build with internal flatbuffers support" ON)
 option(BUILD_EXT_SPINE_CPP "Build with internal spine cpp runtime" ON)
+option(BUILD_EXT_CARES "Build with internal c-ares support" ON)
 
 add_library(external empty.cpp)
 
@@ -184,6 +185,15 @@ if(BUILD_EXT_SPINE_CPP)
     add_subdirectory(spine-cpp)
     target_link_libraries(external spine-cpp)
 endif(BUILD_EXT_SPINE_CPP)
+
+if(BUILD_EXT_CARES)
+    set(CARES_STATIC ON CACHE BOOL "Build c-ares as static library" FORCE)
+    set(CARES_SHARED OFF CACHE BOOL "Build c-ares as shared library" FORCE)
+    set(CARES_BUILD_TOOLS OFF CACHE BOOL "Build c-ares tools" FORCE)
+    add_subdirectory(c-ares)
+    target_link_libraries(external c-ares)
+    include_directories($<TARGET_FILE_DIR:c-ares>)
+endif(BUILD_EXT_CARES)
 
 # put "external" into External folder, too
 set_target_properties(external

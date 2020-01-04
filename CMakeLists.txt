@@ -20,6 +20,7 @@ option(BUILD_EXT_ZLIB "Build with internal zlib support" ON)
 option(BUILD_EXT_CURL "Build with internal curl support" ON)
 option(BUILD_EXT_UNZIP "Build with internal unzip support" ON)
 option(BUILD_EXT_FLATBUFFERS "Build with internal flatbuffers support" ON)
+option(BUILD_EXT_SPINE_CPP "Build with internal spine cpp runtime" ON)
 
 add_library(external empty.cpp)
 
@@ -176,6 +177,13 @@ if(BUILD_EXT_FLATBUFFERS)
     add_subdirectory(flatbuffers)
     target_link_libraries(external ext_flatbuffers)
 endif(BUILD_EXT_FLATBUFFERS)
+
+# since 3.6/3.7 c runtime support build as DLL
+# since 3.8 cpp runtime is preferred for cocos2d-x
+if(BUILD_EXT_SPINE_CPP)
+    add_subdirectory(spine-cpp)
+    target_link_libraries(external spine-cpp)
+endif(BUILD_EXT_SPINE_CPP)
 
 # put "external" into External folder, too
 set_target_properties(external

@@ -190,6 +190,28 @@ typedef int socket_native_type;
 #  define EAGAIN WSATRY_AGAIN
 #endif
 
+#if !defined(_WS2IPDEF_)
+inline bool IN4_IS_ADDR_LOOPBACK(const in_addr* a)
+{
+  return ((a->s_addr & 0xff) == 0x7f); // 127/8
+}
+inline bool IN4_IS_ADDR_LINKLOCAL(const in_addr* a)
+{
+  return ((a->s_addr & 0xffff) == 0xfea9); // 169.254/16
+}
+inline bool IN6_IS_ADDR_GLOBAL(const in6_addr* a)
+{
+  //
+  // Check the format prefix and exclude addresses
+  // whose high 4 bits are all zero or all one.
+  // This is a cheap way of excluding v4-compatible,
+  // v4-mapped, loopback, multicast, link-local, site-local.
+  //
+  unsigned int High = (a->s6_addr[0] & 0xf0);
+  return ((High != 0) && (High != 0xf0));
+}
+#endif
+
 // shoulde close connection condition when retval of recv <= 0
 #define SHOULD_CLOSE_0(n, errcode)                                                                 \
   (((n) == 0) || ((n) < 0 && (errcode) != EAGAIN && (errcode) != EWOULDBLOCK && (errcode) != EINTR))
@@ -460,19 +482,14 @@ YASIO__NS_INLINE namespace ip
     }
     std::string ip() const
     {
+      return ip(sa_.sa_family,
+                sa_.sa_family == AF_INET ? (void*)&in4_.sin_addr : (void*)&in6_.sin6_addr);
+    }
+    static std::string ip(int af, const void* src)
+    {
       std::string ipstring(64, '\0');
 
-      size_t n = 0;
-
-      switch (sa_.sa_family)
-      {
-        case AF_INET:
-          n = strlen(compat::inet_ntop(AF_INET, &in4_.sin_addr, &ipstring.front(), 64));
-          break;
-        case AF_INET6:
-          n = strlen(compat::inet_ntop(AF_INET6, &in6_.sin6_addr, &ipstring.front(), 64));
-          break;
-      }
+      size_t n = strlen(compat::inet_ntop(af, src, &ipstring.front(), 64));
       ipstring.resize(n);
 
       return ipstring;

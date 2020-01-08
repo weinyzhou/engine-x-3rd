@@ -34,6 +34,7 @@ SOFTWARE.
 #  include "yasio/yasio.hpp"
 #endif
 #include <limits>
+#include <sstream>
 #if defined(_WIN32)
 #  include <io.h>
 #  define YASIO_O_OPEN_FLAGS O_CREAT | O_RDWR | O_BINARY, S_IWRITE | S_IREAD
@@ -197,19 +198,25 @@ public:
       init_flags_ |= INITF_SSL;
 #endif
 #if defined(YASIO_HAVE_CARES)
-    if (::ares_library_init(ARES_LIB_INIT_ALL) == 0)
+    int ares_status = ::ares_library_init(ARES_LIB_INIT_ALL);
+    if (ares_status == 0)
       init_flags_ |= INITF_CARES;
+    else
+      YASIO_LOG("init c-ares library failed, status=%d, detail:%s", ares_status,
+                ::ares_strerror(ares_status));
 #endif
   }
-#if defined(YASIO_HAVE_CARES)
   ~yasio__global_state()
   {
+#if defined(YASIO_HAVE_CARES)
     if (init_flags_ & INITF_CARES)
       ::ares_library_cleanup();
-  }
 #endif
+  }
+#if defined(YASIO_HAVE_SSL) || defined(YASIO_HAVE_CARES)
 private:
-  int init_flags_ = 0;
+  int init_flags_;
+#endif
 };
 } // namespace
 
@@ -873,8 +880,6 @@ void io_service::process_channels(fd_set* fds_array)
               do_nonblocking_connect(ctx);
               break;
             case YDQS_FAILED:
-              YASIO_SLOG("[index: %d] getaddrinfo failed, ec=%d, detail:%s", ctx->index_,
-                         ctx->error_, xxsocket::gai_strerror(ctx->error_));
               handle_connect_failed(ctx, YERR_RESOLV_HOST_FAILED);
               break;
             default:; // YDQS_INPRROGRESS
@@ -1259,8 +1264,8 @@ void io_service::ares_getaddrinfo_cb(void* arg, int status, int timeouts, ares_a
     ctx->dns_queries_timestamp_ = highp_clock();
 #  if defined(YASIO_ENABLE_ARES_PROFILER)
     YASIO_SLOG_IMPL(current_service.options_,
-                    "[index: %d] ares_getaddrinfo_cb: resolve %s succeed, cost: %g(ms)",
-                    ctx->index_, ctx->remote_host_.c_str(),
+                    "[index: %d] ares_getaddrinfo_cb: resolve %s succeed, cost:%g(ms)", ctx->index_,
+                    ctx->remote_host_.c_str(),
                     (ctx->dns_queries_timestamp_ - ctx->ares_start_time_) / 1000.0);
 #  endif
   }
@@ -1269,8 +1274,8 @@ void io_service::ares_getaddrinfo_cb(void* arg, int status, int timeouts, ares_a
     ctx->set_last_errno(YERR_RESOLV_HOST_FAILED);
     YDQS_SET_STATE(ctx->dns_queries_state_, YDQS_FAILED);
     YASIO_SLOG_IMPL(current_service.options_,
-                    "[index: %d] ares_getaddrinfo_cb: resolve %s failed, status:%d", ctx->index_,
-                    ctx->remote_host_.c_str(), status);
+                    "[index: %d] ares_getaddrinfo_cb: resolve %s failed, status=%d, detail:%s",
+                    ctx->index_, ctx->remote_host_.c_str(), status, ::ares_strerror(status));
   }
 
   current_service.interrupt();
@@ -1297,8 +1302,44 @@ void io_service::process_ares_requests(fd_set* fds_array)
 }
 void io_service::init_ares_channel()
 {
-  if (::ares_init(&ares_) != ARES_SUCCESS)
-    YASIO_LOG("init c-ares channel failed!");
+  auto status = ::ares_init(&ares_);
+  if (::ares_init(&ares_) == ARES_SUCCESS)
+  {
+    YASIO_LOG("init c-ares channel succeed");
+
+    // list all dns servers for resov problem diagnosis
+    ares_addr_node* name_servers = nullptr;
+    if (::ares_get_servers(ares_, &name_servers) == ARES_SUCCESS)
+    {
+      std::stringstream dns_info;
+      dns_info << "the c-ares name servers are:";
+      int flags = 0;
+      for (auto name_server = name_servers; name_server != nullptr; name_server = name_server->next)
+      {
+        switch (name_server->family)
+        {
+          case AF_INET:
+            if (!IN4_IS_ADDR_LOOPBACK((in_addr*)&name_server->addr) &&
+                !IN4_IS_ADDR_LINKLOCAL((in_addr*)&name_server->addr))
+              flags |= ipsv_ipv4;
+            break;
+          case AF_INET6:
+            if (IN6_IS_ADDR_GLOBAL((in6_addr*)&name_server->addr))
+            {
+              flags |= ipsv_ipv6;
+            }
+            break;
+        }
+        dns_info << yasio::inet::endpoint::ip(name_server->family, &name_server->addr) << "; ";
+      }
+      if (flags == 0) // if no valid name server, set to 8.8.8.8 as workaround
+        ::ares_set_servers_csv(ares_, "8.8.8.8");
+      YASIO_LOG("%s", dns_info.str().c_str());
+      ::ares_free_data(name_servers);
+    }
+  }
+  else
+    YASIO_LOG("init c-ares channel failed, status=%d, detail:%s", status, ::ares_strerror(status));
 }
 void io_service::cleanup_ares_channel()
 {
@@ -1862,7 +1903,7 @@ void io_service::start_resolve(io_channel* ctx)
   ctx->ares_start_time_ = highp_clock();
 #endif
 #if !defined(YASIO_HAVE_CARES)
-  std::thread async_resolv_thread([=] { // 6.563ms
+  std::thread async_resolv_thread([=] {
     addrinfo hint;
     memset(&hint, 0x0, sizeof(hint));
 
@@ -1879,7 +1920,8 @@ void io_service::start_resolve(io_channel* ctx)
     }
     else
     {
-      ctx->set_last_errno(error);
+      YASIO_SLOG("[index: %d] resolve %s failed, ec=%d, detail:%s", ctx->index_,
+                 ctx->remote_host_.c_str(), error, xxsocket::gai_strerror(error));
       YDQS_SET_STATE(ctx->dns_queries_state_, YDQS_FAILED);
     }
     /*
@@ -1898,7 +1940,7 @@ void io_service::start_resolve(io_channel* ctx)
   });
   async_resolv_thread.detach();
 #else
-  ares_addrinfo_hints hint; // 8~11.5ms/3ms(hosts)
+  ares_addrinfo_hints hint;
   memset(&hint, 0x0, sizeof(hint));
 
   if (this->ipsv_ & ipsv_ipv4)

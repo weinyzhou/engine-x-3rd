@@ -75,7 +75,7 @@ extern "C" {
   } while (false)
 
 #define YASIO_SLOG(format, ...) YASIO_SLOG_IMPL(options_, format, ##__VA_ARGS__)
-#if !defined(YASIO_VERBOS_LOG)
+#if !defined(YASIO_VERBOSE_LOG)
 #  define YASIO_SLOGV(fmt, ...) (void)0
 #else
 #  define YASIO_SLOGV YASIO_SLOG
@@ -83,8 +83,8 @@ extern "C" {
 
 #define YASIO_ANY_ADDR(flags) (flags) & ipsv_ipv4 ? "0.0.0.0" : "::"
 
-// The multicast explicit peer endpoint index
-#define YASIO_MCAST_EPI 1
+// The udp/multicast explicit peer endpoint index
+#define YASIO_PEER_EPI 1
 
 #if defined(_MSC_VER)
 #  pragma warning(push)
@@ -235,23 +235,14 @@ public:
 #endif
 };
 
-/// deadline_timer
-void deadline_timer::async_wait(timer_cb_t cb)
-{
-  this->service_.schedule_timer(this, std::move(cb));
-}
+/// highp_timer
+void highp_timer::async_wait(timer_cb_t cb) { this->service_.schedule_timer(this, std::move(cb)); }
 
-void deadline_timer::cancel()
+void highp_timer::cancel()
 {
   if (!expired())
-  {
-    this->expire_time_ = highp_clock_t::now() - duration_;
-    this->cancelled_   = true;
-    this->service_.interrupt();
-  }
+    this->service_.remove_timer(this);
 }
-
-void deadline_timer::unschedule() { this->service_.remove_timer(this); }
 
 #if defined(YASIO_HAVE_SSL)
 /// ssl_auto_handle
@@ -267,7 +258,7 @@ void ssl_auto_handle::dispose()
 #endif
 
 /// io_channel
-io_channel::io_channel(io_service& service, int index) : deadline_timer_(service)
+io_channel::io_channel(io_service& service, int index) : timer_(service)
 {
   socket_.reset(new xxsocket());
   state_             = YCS_CLOSED;
@@ -419,7 +410,7 @@ bool io_transport_posix::do_write(long long& max_wait_duration)
       if (n == outstanding_bytes)
       { // All pdu bytes sent.
         send_queue_.pop();
-#if defined(YASIO_VERBOS_LOG)
+#if defined(YASIO_VERBOSE_LOG)
         YASIO_SLOG_IMPL(get_service().options_,
                         "[index: %d] do_write ok, A packet sent "
                         "success, packet size:%d",
@@ -483,8 +474,8 @@ void io_transport_mcast::set_primitives()
 
     if (n > 0)
     { // record explicit peer endpoint
-      ctx_->remote_eps_.resize(YASIO_MCAST_EPI + 1);
-      ctx_->remote_eps_[YASIO_MCAST_EPI] = peer;
+      ctx_->remote_eps_.resize(YASIO_PEER_EPI + 1);
+      ctx_->remote_eps_[YASIO_PEER_EPI] = peer;
     }
     return n;
   };
@@ -494,11 +485,11 @@ int io_transport_mcast::do_read(int& error)
   int n = io_transport_posix::do_read(error);
   if (ctx_->flags_ & YCF_MCAST_HANDSHAKING)
   {
-    if (n > 0 && ctx_->remote_eps_.size() > YASIO_MCAST_EPI)
+    if (n > 0 && ctx_->remote_eps_.size() > YASIO_PEER_EPI)
     {
       // Now the 'peer' is a real host address
       // So  we can use connect to establish 4 tuple with 'peer' & leave the multicast group.
-      if (0 == socket_->connect_n(ctx_->remote_eps_[YASIO_MCAST_EPI]))
+      if (0 == socket_->connect(ctx_->remote_eps_[YASIO_PEER_EPI]))
       {
         ctx_->flags_ &= ~YCF_MCAST_HANDSHAKING;
         ctx_->leave_multicast_group();
@@ -725,7 +716,7 @@ void io_service::clear_channels()
   this->channel_ops_.clear();
   for (auto channel : channels_)
   {
-    channel->deadline_timer_.unschedule();
+    channel->timer_.cancel();
     cleanup_io(channel);
     delete channel;
   }
@@ -1102,9 +1093,9 @@ void io_service::do_nonblocking_connect(io_channel* ctx)
       {
         ctx->set_last_errno(EINPROGRESS);
         register_descriptor(ctx->socket_->native_handle(), YEM_POLLIN | YEM_POLLOUT);
-        ctx->deadline_timer_.expires_from_now(std::chrono::microseconds(options_.connect_timeout_));
-        ctx->deadline_timer_.async_wait([this, ctx](bool cancelled) {
-          if (!cancelled && ctx->state_ != YCS_OPENED)
+        ctx->timer_.expires_from_now(std::chrono::microseconds(options_.connect_timeout_));
+        ctx->timer_.async_wait([this, ctx]() {
+          if (ctx->state_ != YCS_OPENED)
             handle_connect_failed(ctx, ETIMEDOUT);
         });
       }
@@ -1143,7 +1134,7 @@ void io_service::do_nonblocking_connect_completion(io_channel* ctx, fd_set* fds_
       else
         handle_connect_failed(ctx, error);
 
-      ctx->deadline_timer_.cancel();
+      ctx->timer_.cancel();
     }
 #else
     if ((ctx->flags_ & YCF_SSL_HANDSHAKING) == 0)
@@ -1172,7 +1163,7 @@ void io_service::do_nonblocking_connect_completion(io_channel* ctx, fd_set* fds_
       do_ssl_handshake(ctx);
 
     if (ctx->state_ != YCS_OPENING)
-      ctx->deadline_timer_.cancel();
+      ctx->highp_timer_.cancel();
 #endif
   }
 }
@@ -1240,7 +1231,7 @@ void io_service::ares_getaddrinfo_cb(void* arg, int status, int timeouts, ares_a
   auto ctx              = (io_channel*)arg;
   auto& current_service = ctx->get_service();
 
-  ctx->deadline_timer_.cancel();
+  ctx->highp_timer_.cancel();
   current_service.ares_work_finished();
 
   if (status == ARES_SUCCESS)
@@ -1634,7 +1625,7 @@ bool io_service::do_read(transport_handle_t transport, fd_set* fds_array,
                   io_service::strerror(error));
       if (n == -1)
         n = 0;
-#if defined(YASIO_VERBOS_LOG)
+#if defined(YASIO_VERBOSE_LOG)
       if (n > 0)
       {
         YASIO_SLOG("[index: %d] do_read ok, received data len: %d, "
@@ -1711,16 +1702,15 @@ void io_service::unpack(transport_handle_t transport, int bytes_expected, int by
     transport->wpos_ = 0;
 }
 
-deadline_timer_ptr io_service::schedule(const std::chrono::microseconds& duration, timer_cb_t cb)
+highp_timer_ptr io_service::schedule(const std::chrono::microseconds& duration, timer_cb_t cb)
 {
-  auto timer = std::make_shared<deadline_timer>(*this);
+  auto timer = std::make_shared<highp_timer>(*this);
   timer->expires_from_now(duration);
-  timer->async_wait(
-      [timer /*!important, hold on by lambda expression */, cb](bool cancelled) { cb(cancelled); });
+  timer->async_wait([timer /*!important, hold on by lambda expression */, cb]() { cb(); });
   return timer;
 }
 
-void io_service::schedule_timer(deadline_timer* timer_ctl, timer_cb_t&& timer_cb)
+void io_service::schedule_timer(highp_timer* timer_ctl, timer_cb_t&& timer_cb)
 {
   // pitfall: this service only hold the weak pointer of the timer
   // object, so before dispose the timer object need call
@@ -1734,20 +1724,29 @@ void io_service::schedule_timer(deadline_timer* timer_ctl, timer_cb_t&& timer_cb
   {
     this->timer_queue_.emplace_back(timer_ctl, std::move(timer_cb));
     this->sort_timers();
-    if (timer_ctl == this->timer_queue_.begin()->first)
+
+    // If the new timer is earliest, wakup
+    if (timer_ctl == this->timer_queue_.rbegin()->first)
       this->interrupt();
   }
   else // always replace timer_cb
     timer_it->second = std::move(timer_cb);
 }
 
-void io_service::remove_timer(deadline_timer* timer)
+void io_service::remove_timer(highp_timer* timer)
 {
   std::lock_guard<std::recursive_mutex> lck(this->timer_queue_mtx_);
 
   auto iter = this->find_timer(timer);
   if (iter != timer_queue_.end())
+  {
     timer_queue_.erase(iter);
+    if (!timer_queue_.empty())
+    {
+      this->sort_timers();
+      this->interrupt();
+    }
+  }
 }
 
 void io_service::open_internal(io_channel* ctx, bool ignore_state)
@@ -1800,10 +1799,9 @@ void io_service::process_timers()
     if (timer_queue_.back().first->expired())
     {
       auto earliest  = std::move(timer_queue_.back());
-      auto timer_ctl = earliest.first;
       auto& timer_cb = earliest.second;
       timer_queue_.pop_back(); // pop the expired timer from timer queue
-      timer_cb(timer_ctl->cancelled_);
+      timer_cb();
     }
     else
       break;
@@ -1955,13 +1953,10 @@ void io_service::start_resolve(io_channel* ctx)
     service = sport;
   }
 
-  ctx->deadline_timer_.expires_from_now(std::chrono::microseconds(options_.dns_queries_timeout_));
-  ctx->deadline_timer_.async_wait([=](bool cancelled) {
-    if (!cancelled)
-    {
-      ::ares_cancel(this->ares_);
-      handle_connect_failed(ctx, YERR_RESOLV_HOST_FAILED);
-    }
+  ctx->highp_timer_.expires_from_now(std::chrono::microseconds(options_.dns_queries_timeout_));
+  ctx->highp_timer_.async_wait([=]() {
+    ::ares_cancel(this->ares_);
+    handle_connect_failed(ctx, YERR_RESOLV_HOST_FAILED);
   });
   ares_work_started();
   ::ares_getaddrinfo(this->ares_, ctx->remote_host_.c_str(), service, &hint,
@@ -1974,7 +1969,7 @@ int io_service::__builtin_resolv(std::vector<ip::endpoint>& endpoints, const cha
 {
   if (this->ipsv_ & ipsv_ipv4)
     return xxsocket::resolve_v4(endpoints, hostname, port);
-  else if (this->ipsv_ & ipsv_ipv6) // localhost is IPV6 ONLY network
+  else if (this->ipsv_ & ipsv_ipv6) // localhost is IPv6_only network
     return xxsocket::resolve_v6(endpoints, hostname, port) != 0
                ? xxsocket::resolve_v4to6(endpoints, hostname, port)
                : 0;

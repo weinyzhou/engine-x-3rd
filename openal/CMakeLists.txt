@@ -22,4 +22,5 @@ else()
     set_target_properties(${target_name} PROPERTIES
       IMPORTED_LOCATION "${platform_spec_path}/lib${lib_name}.so"
     )
+    set(OPENAL_SO_PATH "${platform_spec_path}/lib${lib_name}.so" CACHE INTERNAL "OpenAL Library location" )
 endif()

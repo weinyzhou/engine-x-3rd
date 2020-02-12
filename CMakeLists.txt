@@ -22,6 +22,7 @@ option(BUILD_EXT_UNZIP "Build with internal unzip support" ON)
 option(BUILD_EXT_FLATBUFFERS "Build with internal flatbuffers support" ON)
 option(BUILD_EXT_SPINE_CPP "Build with internal spine cpp runtime" ON)
 option(BUILD_EXT_CARES "Build with internal c-ares support" ON)
+option(BUILD_EXT_ASTC "Build with internal ASTC support" ON)
 
 add_library(external empty.cpp)
 
@@ -88,6 +89,10 @@ if(BUILD_EXT_MD5)
     target_link_libraries(external ext_md5)
 endif(BUILD_EXT_MD5)
 
+if(BUILD_EXT_ASTC)
+    add_subdirectory(astc)
+    target_link_libraries(external ext_astc)
+endif(BUILD_EXT_ASTC)
 
 # use lua/js specific libs by property to prevent conflict
 if(BUILD_LUA_LIBS)

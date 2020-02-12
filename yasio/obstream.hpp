@@ -27,6 +27,7 @@ SOFTWARE.
 */
 #ifndef YASIO__OBSTREAM_HPP
 #define YASIO__OBSTREAM_HPP
+#include <stddef.h>
 #include <string>
 #include "yasio/cxx17/string_view.hpp"
 #include <sstream>
@@ -39,7 +40,7 @@ namespace yasio
 class obstream
 {
 public:
-  YASIO__DECL obstream(size_t capacity = 256);
+  YASIO__DECL obstream(size_t capacity = 128);
   YASIO__DECL obstream(const obstream& rhs);
   YASIO__DECL obstream(obstream&& rhs);
   YASIO__DECL ~obstream();
@@ -65,7 +66,7 @@ public:
 
   template <typename _Nty> inline void write_i(_Nty value);
 
-  YASIO__DECL void write_i24(int32_t value); // highest bit as sign
+  YASIO__DECL void write_i24(int32_t value);  // highest bit as sign
   YASIO__DECL void write_u24(uint32_t value); // highest byte ignored
 
   YASIO__DECL void write_i7(int value);
@@ -84,9 +85,11 @@ public:
   YASIO__DECL void write_v16(const void* v, int size);
   YASIO__DECL void write_v8(const void* v, int size);
 
+  YASIO__DECL void write_byte(char v);
+
   YASIO__DECL void write_bytes(cxx17::string_view);
   YASIO__DECL void write_bytes(const void* v, int vl);
-  YASIO__DECL void write_byte(char v);
+  YASIO__DECL void write_bytes(std::streamoff offset, const void* v, int vl);
 
   bool empty() const { return buffer_.empty(); }
   size_t length() const { return buffer_.size(); }
@@ -95,21 +98,25 @@ public:
   const std::vector<char>& buffer() const { return buffer_; }
   std::vector<char>& buffer() { return buffer_; }
 
-  char* wptr(size_t offset = 0) { return &buffer_.front() + offset; }
+  char* wptr(ptrdiff_t offset = 0) { return &buffer_.front() + offset; }
 
-  template <typename _Nty> inline void set(std::streamoff offset, const _Nty value);
+  template <typename _Nty> inline void pwrite_i(ptrdiff_t offset, const _Nty value)
+  {
+    swrite_i(wptr(offset), value);
+  }
+  template <typename _Nty> static void swrite_i(void* dst, const _Nty value)
+  {
+    auto nv = yasio::endian::htonv(value);
+    ::memcpy(dst, &nv, sizeof(nv));
+  }
 
   template <typename _LenT> inline void write_vx(const void* v, int size)
   {
     auto l = yasio::endian::htonv(static_cast<_LenT>(size));
 
-    auto append_size = sizeof(l) + size;
-    auto offset      = buffer_.size();
-    buffer_.resize(offset + append_size);
-
-    ::memcpy(buffer_.data() + offset, &l, sizeof(l));
+    write_bytes(&l, sizeof(l));
     if (size > 0)
-      ::memcpy(buffer_.data() + offset + sizeof l, v, size);
+      write_bytes(v, size);
   }
   YASIO__DECL obstream sub(size_t offset, size_t count = -1);
 
@@ -119,32 +126,25 @@ public:
 protected:
   std::vector<char> buffer_;
   std::stack<size_t> offset_stack_;
-}; // class obstream
+}; // CLASS obstream
 
 template <typename _Nty> inline void obstream::write_i(_Nty value)
 {
   auto nv = yasio::endian::htonv(value);
-  buffer_.insert(buffer_.end(), (const char*)&nv, (const char*)&nv + sizeof(nv));
-}
 
-template <> inline void obstream::write_i<uint8_t>(uint8_t value) { buffer_.push_back(value); }
+  write_bytes(&nv, sizeof(nv));
+}
 
 template <> inline void obstream::write_i<float>(float value)
 {
   auto nv = htonf(value);
-  buffer_.insert(buffer_.end(), (const char*)&nv, (const char*)&nv + sizeof(nv));
+  write_bytes(&nv, sizeof(nv));
 }
 
 template <> inline void obstream::write_i<double>(double value)
 {
   auto nv = htond(value);
-  buffer_.insert(buffer_.end(), (const char*)&nv, (const char*)&nv + sizeof(nv));
-}
-
-template <typename _Nty> inline void obstream::set(std::streamoff offset, const _Nty value)
-{
-  auto nv = yasio::endian::htonv(value);
-  memcpy(buffer_.data() + offset, &nv, sizeof(nv));
+  write_bytes(&nv, sizeof(nv));
 }
 } // namespace yasio
 

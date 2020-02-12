@@ -1254,7 +1254,8 @@ astc_codec_image *astc_codec_load_image(const char *input_filename, int padding,
 		sprintf(htga_load_filename, "%s.htga", input_filename);
 		sprintf(exr_to_htga_command, "exr_to_htga -q %s %s", input_filename, htga_load_filename);
 
-		int retval = system(exr_to_htga_command);
+		//int retval = system(exr_to_htga_command);
+		int retval = 0;
 		if (retval != 0)
 		{
 			printf("Failed to run exr_to_htga to convert input .exr file.\n");
@@ -1387,7 +1388,7 @@ int astc_codec_store_image(const astc_codec_image * output_image, const char *ou
 		sprintf(htga_output_filename, "%s.htga", output_filename);
 		store_result = store_tga_image(output_image, htga_output_filename, 16);
 		sprintf(htga_output_command, "exr_to_htga -e %s %s", htga_output_filename, output_filename);
-		system_retval = system(htga_output_command);
+		//system_retval = system(htga_output_command);
 		astc_codec_unlink(htga_output_filename);
 		if (system_retval != 0)
 			store_result = -99;

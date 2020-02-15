@@ -904,16 +904,16 @@ void io_service::process_channels(fd_set* fds_array)
   }
 }
 
-void io_service::close(size_t cindex)
+void io_service::close(int cindex)
 {
   // Gets channel context
-  if (cindex >= channels_.size())
+  auto channel = cindex_to_handle(cindex);
+  if (!channel)
     return;
-  auto ctx = channels_[cindex];
 
-  if (!(ctx->opmask_ & YOPM_CLOSE_CHANNEL))
+  if (!(channel->opmask_ & YOPM_CLOSE_CHANNEL))
   {
-    if (close_internal(ctx))
+    if (close_internal(channel))
       this->interrupt();
   }
 }
@@ -934,7 +934,7 @@ bool io_service::is_open(transport_handle_t transport) const
   return transport->state_ == YCS_OPENED;
 }
 
-bool io_service::is_open(size_t cindex) const
+bool io_service::is_open(int cindex) const
 {
   auto ctx = cindex_to_handle(cindex);
   return ctx != nullptr && ctx->state_ == YCS_OPENED;
@@ -1070,8 +1070,10 @@ void io_service::do_nonblocking_connect(io_channel* ctx)
   int ret = -1;
   if (ctx->socket_->open(ep.af(), ctx->protocol_))
   {
-    if (ctx->flags_ & YCF_REUSEPORT)
-      ctx->socket_->set_optval(SOL_SOCKET, SO_REUSEPORT, 1);
+    if (ctx->flags_ & YCF_REUSEADDR)
+      ctx->socket_->reuse_address(true);
+    if (ctx->flags_ & YCF_EXCLUSIVEADDRUSE)
+      ctx->socket_->reuse_address(false);
     if (ctx->local_host_.empty())
       ctx->local_host_ = YASIO_ANY_ADDR(this->ipsv_);
 
@@ -1363,9 +1365,10 @@ void io_service::do_nonblocking_accept(io_channel* ctx)
   if (ctx->socket_->open(ipsv_ & ipsv_ipv4 ? AF_INET : AF_INET6, ctx->protocol_))
   {
     int error = 0;
-    if (ctx->flags_ & YCF_REUSEPORT)
-      ctx->socket_->set_optval(SOL_SOCKET, SO_REUSEPORT, 1);
-
+    if (ctx->flags_ & YCF_REUSEADDR)
+      ctx->socket_->reuse_address(true);
+    if (ctx->flags_ & YCF_EXCLUSIVEADDRUSE)
+      ctx->socket_->reuse_address(false);
     if (ctx->socket_->bind(ep) != 0)
     {
       error = xxsocket::get_last_errno();
@@ -1472,8 +1475,10 @@ transport_handle_t io_service::make_dgram_transport(io_channel* ctx, ip::endpoin
   auto client_sock = std::make_shared<xxsocket>();
   if (client_sock->open(ipsv_ & ipsv_ipv4 ? AF_INET : AF_INET6, SOCK_DGRAM, 0))
   {
-    if (ctx->flags_ & YCF_REUSEPORT)
-      client_sock->set_optval(SOL_SOCKET, SO_REUSEPORT, 1);
+    if (ctx->flags_ & YCF_REUSEADDR)
+      client_sock->reuse_address(true);
+    if (ctx->flags_ & YCF_EXCLUSIVEADDRUSE)
+      client_sock->reuse_address(false);
     int error = client_sock->bind("0.0.0.0", ctx->local_port_) == 0
                     ? xxsocket::connect(client_sock->native_handle(), peer)
                     : -1;
@@ -1581,7 +1586,7 @@ void io_service::deallocate_transport(transport_handle_t t)
   if (t && t->valid_)
   {
     t->invalid();
-    t->~io_transport();
+    yasio::invoke_dtor(t);
     this->tpool_.push_back(t);
   }
 }

@@ -148,10 +148,10 @@ if(WINDOWS OR ANDROID OR LINUX)
 endif()
 
 if(WINDOWS)
-    add_subdirectory(win32-specific/gles)
+    add_subdirectory(win32-specific/glad)
     add_subdirectory(win32-specific/iconv)
     target_link_libraries(external 
-        ext_gles
+        ext_glad
         ext_iconv
     )
 endif()

@@ -127,7 +127,6 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
       [](io_service* service, int opt, sol::variadic_args va) {
         switch (opt)
         {
-          case YOPT_C_LOCAL_HOST:
           case YOPT_C_REMOTE_HOST:
             service->set_option(opt, static_cast<int>(va[0]), va[1].as<const char*>());
             break;
@@ -138,7 +137,7 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
           case YOPT_C_REMOTE_PORT:
             service->set_option(opt, static_cast<int>(va[0]), static_cast<int>(va[1]));
             break;
-          case YOPT_C_LOCAL_ENDPOINT:
+          case YOPT_C_ENABLE_MCAST:
           case YOPT_C_REMOTE_ENDPOINT:
             service->set_option(opt, static_cast<int>(va[0]), va[1].as<const char*>(),
                                 static_cast<int>(va[2]));
@@ -178,6 +177,18 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
           },
           [](io_service* service, transport_handle_t transport, yasio::obstream* obs) {
             return service->write(transport, std::move(obs->buffer()));
+          }),
+      "write_to",
+      sol::overload(
+          [](io_service* service, transport_handle_t transport, cxx17::string_view s,
+             cxx17::string_view ip, u_short port) {
+            return service->write_to(transport, std::vector<char>(s.data(), s.data() + s.length()),
+                                     ip::endpoint{ip.data(), port});
+          },
+          [](io_service* service, transport_handle_t transport, yasio::obstream* obs,
+             cxx17::string_view ip, u_short port) {
+            return service->write_to(transport, std::move(obs->buffer()),
+                                     ip::endpoint{ip.data(), port});
           }));
 
   // ##-- obstream
@@ -245,8 +256,6 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
   YASIO_EXPORT_ENUM(YCM_TCP_SERVER);
   YASIO_EXPORT_ENUM(YCM_UDP_CLIENT);
   YASIO_EXPORT_ENUM(YCM_UDP_SERVER);
-  YASIO_EXPORT_ENUM(YCM_MCAST_CLIENT);
-  YASIO_EXPORT_ENUM(YCM_MCAST_SERVER);
 #  if defined(YASIO_HAVE_KCP)
   YASIO_EXPORT_ENUM(YCM_KCP_CLIENT);
 #  endif
@@ -254,20 +263,19 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
   YASIO_EXPORT_ENUM(YCM_SSL_CLIENT);
 #  endif
 
-  YASIO_EXPORT_ENUM(YCF_MCAST_LOOPBACK);
-
   YASIO_EXPORT_ENUM(YOPT_S_CONNECT_TIMEOUT);
   YASIO_EXPORT_ENUM(YOPT_S_DNS_CACHE_TIMEOUT);
   YASIO_EXPORT_ENUM(YOPT_S_DNS_QUERIES_TIMEOUT);
   YASIO_EXPORT_ENUM(YOPT_S_TCP_KEEPALIVE);
   YASIO_EXPORT_ENUM(YOPT_S_EVENT_CB);
   YASIO_EXPORT_ENUM(YOPT_C_LFBFD_PARAMS);
-  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
   YASIO_EXPORT_ENUM(YOPT_C_LOCAL_PORT);
+  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_HOST);
-  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_HOST);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_ENDPOINT);
-  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_ENDPOINT);
+  YASIO_EXPORT_ENUM(YOPT_C_ENABLE_MCAST);
+  YASIO_EXPORT_ENUM(YOPT_C_DISABLE_MCAST);
+
   YASIO_EXPORT_ENUM(YEK_CONNECT_RESPONSE);
   YASIO_EXPORT_ENUM(YEK_CONNECTION_LOST);
   YASIO_EXPORT_ENUM(YEK_PACKET);
@@ -423,11 +431,23 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
               [](io_service* service, transport_handle_t transport, yasio::obstream* obs) {
                 return service->write(transport, std::move(obs->buffer()));
               })
+          .addOverloadedFunctions(
+              "write_to",
+              [](io_service* service, transport_handle_t transport, cxx17::string_view s,
+                 cxx17::string_view ip, u_short port) {
+                return service->write_to(transport,
+                                         std::vector<char>(s.data(), s.data() + s.length()),
+                                         ip::endpoint{ip.data(), port});
+              },
+              [](io_service* service, transport_handle_t transport, yasio::obstream* obs,
+                 cxx17::string_view ip, u_short port) {
+                return service->write_to(transport, std::move(obs->buffer()),
+                                         ip::endpoint{ip.data(), port});
+              })
           .addStaticFunction("set_option", [](io_service* service, int opt,
                                               kaguya::VariadicArgType args) {
             switch (opt)
             {
-              case YOPT_C_LOCAL_HOST:
               case YOPT_C_REMOTE_HOST:
                 service->set_option(opt, static_cast<int>(args[0]),
                                     static_cast<const char*>(args[1]));
@@ -440,7 +460,7 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
               case YOPT_C_REMOTE_PORT:
                 service->set_option(opt, static_cast<int>(args[0]), static_cast<int>(args[1]));
                 break;
-              case YOPT_C_LOCAL_ENDPOINT:
+              case YOPT_C_ENABLE_MCAST:
               case YOPT_C_REMOTE_ENDPOINT:
                 service->set_option(opt, static_cast<int>(args[0]),
                                     static_cast<const char*>(args[1]), static_cast<int>(args[2]));
@@ -561,8 +581,6 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
   YASIO_EXPORT_ENUM(YCM_TCP_SERVER);
   YASIO_EXPORT_ENUM(YCM_UDP_CLIENT);
   YASIO_EXPORT_ENUM(YCM_UDP_SERVER);
-  YASIO_EXPORT_ENUM(YCM_MCAST_CLIENT);
-  YASIO_EXPORT_ENUM(YCM_MCAST_SERVER);
 #  if defined(YASIO_HAVE_KCP)
   YASIO_EXPORT_ENUM(YCM_KCP_CLIENT);
 #  endif
@@ -570,20 +588,19 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
   YASIO_EXPORT_ENUM(YCM_SSL_CLIENT);
 #  endif
 
-  YASIO_EXPORT_ENUM(YCF_MCAST_LOOPBACK);
-
   YASIO_EXPORT_ENUM(YOPT_S_CONNECT_TIMEOUT);
   YASIO_EXPORT_ENUM(YOPT_S_DNS_CACHE_TIMEOUT);
   YASIO_EXPORT_ENUM(YOPT_S_DNS_QUERIES_TIMEOUT);
   YASIO_EXPORT_ENUM(YOPT_S_TCP_KEEPALIVE);
   YASIO_EXPORT_ENUM(YOPT_S_EVENT_CB);
   YASIO_EXPORT_ENUM(YOPT_C_LFBFD_PARAMS);
-  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
   YASIO_EXPORT_ENUM(YOPT_C_LOCAL_PORT);
+  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_HOST);
-  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_HOST);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_ENDPOINT);
-  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_ENDPOINT);
+  YASIO_EXPORT_ENUM(YOPT_C_ENABLE_MCAST);
+  YASIO_EXPORT_ENUM(YOPT_C_DISABLE_MCAST);
+
   YASIO_EXPORT_ENUM(YEK_CONNECT_RESPONSE);
   YASIO_EXPORT_ENUM(YEK_CONNECTION_LOST);
   YASIO_EXPORT_ENUM(YEK_PACKET);

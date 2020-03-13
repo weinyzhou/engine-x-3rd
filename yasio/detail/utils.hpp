@@ -27,6 +27,7 @@ SOFTWARE.
 */
 #ifndef YASIO__UTILS_HPP
 #define YASIO__UTILS_HPP
+#include <assert.h>
 #include <chrono>
 #include <algorithm>
 #include "yasio/cxx17/feature_test.hpp"
@@ -37,11 +38,17 @@ namespace yasio
 typedef long long highp_time_t;
 typedef std::chrono::high_resolution_clock highp_clock_t;
 typedef std::chrono::system_clock system_clock_t;
+
+// The high precision nano seconds timestamp
+template <typename _Ty = highp_clock_t> inline long long xhighp_clock()
+{
+  auto duration = _Ty::now().time_since_epoch();
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
+}
 // The high precision micro seconds timestamp
 template <typename _Ty = highp_clock_t> inline long long highp_clock()
 {
-  auto duration = _Ty::now().time_since_epoch();
-  return std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+  return xhighp_clock<_Ty>() / 1000LL;
 }
 
 #if YASIO__HAS_CXX17
@@ -49,7 +56,7 @@ using std::clamp;
 #else
 template <typename _Ty> const _Ty& clamp(const _Ty& v, const _Ty& lo, const _Ty& hi)
 {
-  ASSERT(!(hi < lo));
+  assert(!(hi < lo));
   return v < lo ? lo : hi < v ? hi : v;
 }
 #endif

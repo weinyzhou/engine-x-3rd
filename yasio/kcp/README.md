@@ -49,6 +49,18 @@ TCP是为流量设计的（每秒内可以传输多少KB的数据），讲究的
    KCP正常模式同TCP一样使用公平退让法则，即发送窗口大小由：发送缓存大小、接收端剩余接收缓存大小、丢包退让及慢启动这四要素决定。但传送及时性要求很高的小数据时，可选择通过配置跳过后两步，仅用前两项来控制发送频率。以牺牲部分公平性及带宽利用率之代价，换取了开着BT都能流畅传输的效果。
 
 
+# 快速安装
+
+您可以使用[vcpkg](https://github.com/Microsoft/vcpkg)库管理器下载并安装kcp:
+
+    git clone https://github.com/Microsoft/vcpkg.git
+    cd vcpkg
+    ./bootstrap-vcpkg.sh
+    ./vcpkg integrate install
+    ./vcpkg install kcp
+
+vcpkg中的kcp库由Microsoft团队成员和社区贡献者保持最新状态。如果版本过时，请在vcpkg存储库上[创建issue或提出PR](https://github.com/Microsoft/vcpkg)。
+
 # 基本使用
 
 1. 创建 KCP对象：
@@ -201,13 +213,33 @@ TCP是为流量设计的（每秒内可以传输多少KB的数据），讲究的
 
 - [Kcp a new low latency secure network stack](https://improbable.io/blog/kcp-a-new-low-latency-secure-network-stack)
 
-# 项目历史
 
-See [Success Stories](https://github.com/skywind3000/kcp/wiki/Success-Stories).
+# 关于协议
+
+近年来，网络游戏和各类社交网络都在成几何倍数的增长，不管网络游戏还是各类互动社交网络，交互性和复杂度都在迅速提高，都需要在极短的时间内将数据同时投递给大量用户，因此传输技术自然变为未来制约发展的一个重要因素，而开源界里各种著名的传输协议，如 raknet/enet 之类，一发布都是整套协议栈一起发布，这种形式是不利于多样化的，我的项目只能选择用或者不用你，很难选择 “部分用你”，然而你一套协议栈设计的再好，是非常难以满足不同角度的各种需求的。
+
+因此 KCP 的方式是把协议栈 “拆开”，让大家可以根据项目需求进行灵活的调整和组装，你可以下面加一层 reed solomon 的纠删码做 FEC，上面加一层类 RC4/Salsa20 做流加密，握手处再设计一套非对称密钥交换，底层 UDP 传输层再做一套动态路由系统，同时探测多条路径，选最好路径进行传输。这些不同的 “协议单元” 可以像搭建积木一般根据需要自由组合，保证 “简单性” 和 “可拆分性”，这样才能灵活适配多变的业务需求，哪个模块不好，换了就是。
+
+未来传输方面的解决方案必然是根据使用场景深度定制的，因此给大家一个可以自由组合的 “协议单元” ，方便大家集成在自己的协议栈中。
+
+For more information, please see the [Success Stories](https://github.com/skywind3000/kcp/wiki/Success-Stories).
+
+
+# 关于作者
+
+作者：林伟 (skywind3000)
+
+欢迎关注我的：[twitter](https://twitter.com/skywind3000) 和 [zhihu](https://www.zhihu.com/people/skywind3000)。
+
+我在多年的开发经历中，一直都喜欢研究解决程序中的一些瓶颈问题，早年喜欢游戏开发，照着《VGA编程》来做游戏图形，读 Michael Abrash 的《图形程序开发人员指南》做软渲染器，爱好摆弄一些能够榨干 CPU 能够运行更快的代码，参加工作后，兴趣转移到服务端和网络相关的技术。
+
+2007 年时做了几个传统游戏后开始研究快速动作游戏的同步问题，期间写过不少文章，算是国内比较早研究同步问题的人，然而发现不管怎么解决同步都需要在网络传输方面有所突破，后来离开游戏转行互联网后也发现不少领域有这方面的需求，于是开始花时间在网络传输这个领域上，尝试基于 UDP 实现一些保守的可靠协议，反照 BSD Lite 4.4 的代码实现一些类 TCP 协议，觉得比较有意思，又接着实现一些 P2P 和动态路由网相关的玩具。KCP 协议诞生于 2011 年，基本算是自己传输方面做的几个玩具中的一个。
+
+Kcptun 的作者 xtaci 是我的大学同学，我俩都是学通信的，经常在一起研究如何进行传输优化。
 
 # 欢迎捐赠
 
-![欢迎使用支付宝对该项目进行捐赠](https://raw.githubusercontent.com/skywind3000/kcp/master/images/donation.png)
+![欢迎使用支付宝对该项目进行捐赠](images/donation.png)
 
 欢迎使用支付宝手扫描上面的二维码，对该项目进行捐赠。捐赠款项将用于持续优化 KCP协议以及完善文档。
 
@@ -217,13 +249,11 @@ See [Success Stories](https://github.com/skywind3000/kcp/wiki/Success-Stories).
 欢迎关注
 
 KCP交流群：364933586（QQ群号），KCP集成，调优，网络传输以及相关技术讨论
+
 Gitter 群：https://gitter.im/skywind3000/KCP
 
 blog: http://www.skywind.me
 
-zhihu: https://www.zhihu.com/people/skywind3000
-
-twitter: [https://twitter.com/skywind3000](https://twitter.com/skywind3000)
 
 
 ## Contributors

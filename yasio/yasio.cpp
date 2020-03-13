@@ -277,9 +277,7 @@ void io_channel::enable_multicast_group(const ip::endpoint& ep, int loopback)
 {
   properties_ |= YCPF_MCAST;
   if (loopback)
-  {
     properties_ |= YCPF_MCAST_LOOPBACK;
-  }
 
   multiaddr_ = ep;
 }
@@ -942,9 +940,8 @@ void io_service::process_channels(fd_set* fds_array)
           }
         }
         else if (ctx->state_ == io_base::state::OPENING)
-        {
           do_nonblocking_connect_completion(ctx, fds_array);
-        }
+
         finish = ctx->error_ != EINPROGRESS && (ctx->opmask_ & YOPM_OPEN_CHANNEL) == 0;
       }
       else if (ctx->properties_ & YCM_SERVER)
@@ -1005,7 +1002,7 @@ void io_service::reopen(transport_handle_t transport)
 }
 void io_service::open(size_t cindex, int kind)
 {
-  ASSERT((kind > 0 && kind <= 0xff) && ((kind & (kind - 1)) != 0));
+  assert((kind > 0 && kind <= 0xff) && ((kind & (kind - 1)) != 0));
 
   auto ctx = cindex_to_handle(cindex);
   if (ctx != nullptr)
@@ -1148,6 +1145,8 @@ void io_service::do_nonblocking_connect(io_channel* ctx)
     // tcp connect directly, for udp do not need to connect.
     if (ctx->properties_ & YCM_TCP)
       ret = xxsocket::connect_n(ctx->socket_->native_handle(), ep);
+    else // udp, we should set non-blocking mode manually
+      ctx->socket_->set_nonblocking(true);
 
     // join the multicast group for udp
     if (ctx->properties_ & YCPF_MCAST)
@@ -1385,9 +1384,7 @@ void io_service::init_ares_channel()
             break;
           case AF_INET6:
             if (IN6_IS_ADDR_GLOBAL((in6_addr*)&name_server->addr))
-            {
               flags |= ipsv_ipv6;
-            }
             break;
         }
         dns_info << yasio::inet::endpoint::ip(name_server->family, &name_server->addr) << "; ";
@@ -1476,9 +1473,7 @@ void io_service::do_nonblocking_accept_completion(io_channel* ctx, fd_set* fds_a
           socket_native_type sockfd;
           error = ctx->socket_->accept_n(sockfd);
           if (error == 0)
-          {
             handle_connect_succeed(ctx, std::make_shared<xxsocket>(sockfd));
-          }
           else // The non blocking tcp accept failed can be ignored.
             YASIO_SLOGV("[index: %d] socket.fd=%d, accept failed, ec=%u", ctx->index(),
                         (int)ctx->socket_->native_handle(), error);
@@ -2077,16 +2072,13 @@ void io_service::set_option_internal(int opt, va_list ap) // lgtm [cpp/poorly-do
       break;
 #endif
     case YOPT_S_CONNECT_TIMEOUT:
-      options_.connect_timeout_ =
-          static_cast<highp_time_t>(va_arg(ap, int)) * MICROSECONDS_PER_SECOND;
+      options_.connect_timeout_ = static_cast<highp_time_t>(va_arg(ap, int)) * std::micro::den;
       break;
     case YOPT_S_DNS_CACHE_TIMEOUT:
-      options_.dns_cache_timeout_ =
-          static_cast<highp_time_t>(va_arg(ap, int)) * MICROSECONDS_PER_SECOND;
+      options_.dns_cache_timeout_ = static_cast<highp_time_t>(va_arg(ap, int)) * std::micro::den;
       break;
     case YOPT_S_DNS_QUERIES_TIMEOUT:
-      options_.dns_queries_timeout_ =
-          static_cast<highp_time_t>(va_arg(ap, int)) * MICROSECONDS_PER_SECOND;
+      options_.dns_queries_timeout_ = static_cast<highp_time_t>(va_arg(ap, int)) * std::micro::den;
       break;
     case YOPT_C_LFBFD_PARAMS: {
       auto channel = cindex_to_handle(static_cast<size_t>(va_arg(ap, int)));
@@ -2170,9 +2162,9 @@ void io_service::set_option_internal(int opt, va_list ap) // lgtm [cpp/poorly-do
       }
       break;
     }
-    case YOPT_I_SOCKOPT: {
+    case YOPT_SOCKOPT: {
       auto obj = va_arg(ap, io_base*);
-      if (obj && obj->socket_)
+      if (obj && obj->socket_ && obj->socket_->is_open())
       {
         auto optlevel = va_arg(ap, int);
         auto optname  = va_arg(ap, int);

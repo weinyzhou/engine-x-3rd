@@ -100,10 +100,6 @@ typedef int socket_native_type;
 #endif
 #include <fcntl.h> // common platform header
 
-#if !defined(MICROSECONDS_PER_SECOND)
-#  define MICROSECONDS_PER_SECOND 1000000LL
-#endif
-
 // redefine socket error code for posix api
 #ifdef _WIN32
 
@@ -737,11 +733,8 @@ public:
   YASIO__DECL int connect_n(const char* addr, u_short port,
                             const std::chrono::microseconds& wtimeout);
   YASIO__DECL int connect_n(const endpoint& ep, const std::chrono::microseconds& wtimeout);
-  YASIO__DECL int connect_n(const char* addr, u_short port, timeval* timeout);
-  YASIO__DECL int connect_n(const endpoint& ep, timeval* timeout);
-  YASIO__DECL static int connect_n(socket_native_type s, const char* addr, u_short port,
-                                   timeval* timeout);
-  YASIO__DECL static int connect_n(socket_native_type s, const endpoint& ep, timeval* timeout);
+  YASIO__DECL static int connect_n(socket_native_type s, const endpoint& ep,
+                                   const std::chrono::microseconds& wtimeout);
 
   /* @brief: Establishes a connection to a specified this socket with nonblocking
   ** @params:
@@ -762,9 +755,8 @@ public:
    */
   YASIO__DECL int send_n(const void* buf, int len, const std::chrono::microseconds& wtimeout,
                          int flags = 0);
-  YASIO__DECL int send_n(const void* buf, int len, long long timeout_usec, int flags = 0);
   YASIO__DECL static int send_n(socket_native_type s, const void* buf, int len,
-                                long long timeout_usec, int flags = 0);
+                                std::chrono::microseconds wtimeout, int flags = 0);
 
   /* @brief: nonblock recv
   ** @params:
@@ -775,9 +767,8 @@ public:
   */
   YASIO__DECL int recv_n(void* buf, int len, const std::chrono::microseconds& wtimeout,
                          int flags = 0) const;
-  YASIO__DECL int recv_n(void* buf, int len, long long timeout_usec, int flags = 0) const;
-  YASIO__DECL static int recv_n(socket_native_type s, void* buf, int len, long long timeout_usec,
-                                int flags = 0);
+  YASIO__DECL static int recv_n(socket_native_type s, void* buf, int len,
+                                std::chrono::microseconds wtimeout, int flags = 0);
 
   /* @brief: Sends data on this connected socket
   ** @params: omit
@@ -821,16 +812,13 @@ public:
   */
   YASIO__DECL int recvfrom(void* buf, int len, endpoint& peer, int flags = 0) const;
 
-  YASIO__DECL int handle_write_ready(timeval* timeo) const;
-  YASIO__DECL static int handle_write_ready(socket_native_type s, timeval* timeo);
-  YASIO__DECL static int handle_connect_ready(socket_native_type s, timeval* timeo);
+  YASIO__DECL int handle_write_ready(const std::chrono::microseconds& wtimeout) const;
+  YASIO__DECL static int handle_write_ready(socket_native_type s,
+                                            const std::chrono::microseconds& wtimeout);
 
   YASIO__DECL int handle_read_ready(const std::chrono::microseconds& wtimeout) const;
-  YASIO__DECL int handle_read_ready(timeval* timeo) const;
-
   YASIO__DECL static int handle_read_ready(socket_native_type s,
                                            const std::chrono::microseconds& wtimeout);
-  YASIO__DECL static int handle_read_ready(socket_native_type s, timeval* timeo);
 
   /* @brief: Get local address info
   ** @params : None
@@ -874,8 +862,10 @@ public:
   ** @examples:
   **       set_optval(SOL_SOCKET, SO_SNDBUF, 4096);
   **       set_optval(SOL_SOCKET, SO_RCVBUF, 4096);
-  **       set_optval(SOL_SOCKET, SO_SNDTIMEO, 10);
-  **       set_optval(SOL_SOCKET, SO_RCVTIMEO, 10);
+  ** @remark: for more detail, please see:
+  **       windows: https://docs.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-setsockopt
+  **       linux: https://linux.die.net/man/3/setsockopt
+  **       osx: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/getsockopt.2.html
   **
   ** @returns: If no error occurs, set_optval returns zero. Otherwise, a value of SOCKET_ERROR is
   *returned
@@ -946,6 +936,16 @@ public:
     u_long argp = static_cast<u_long>(value);
     return ::ioctlsocket(s, cmd, &argp);
   }
+
+  /* @brief: wrapper system select, hide signal EINTR
+  ** @params:
+  **          s: the socket fd, it's different with system
+  **          see MSDN or man page
+  ** @returns: If no error occurs, returns >= 0. Otherwise, a value of -1 is
+  *returned
+  */
+  YASIO__DECL static int select(int s, fd_set* readfds, fd_set* writefds, fd_set* exceptfds,
+                                std::chrono::microseconds wtimeout);
 
   /* @brief: check is a client socket alive
   ** @params :
@@ -1052,6 +1052,9 @@ public:
 
     return error;
   }
+
+protected:
+  YASIO__DECL static void reregister_descriptor(int s, fd_set* fds);
 
 private:
   socket_native_type fd;

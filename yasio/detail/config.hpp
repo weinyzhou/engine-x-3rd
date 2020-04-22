@@ -27,6 +27,7 @@ SOFTWARE.
 */
 #ifndef YASIO__CONFIG_HPP
 #define YASIO__CONFIG_HPP
+#include "yasio/compiler/feature_test.hpp"
 
 /*
 ** Uncomment or add compiler flag -DYASIO_HEADER_ONLY to enable yasio core implementation header
@@ -40,15 +41,12 @@ SOFTWARE.
 // #define YASIO_VERBOSE_LOG 1
 
 /*
-** Uncomment or add compiler flag -DYASIO_DISABLE_SPSC_QUEUE to disable SPSC queue in io_service
-** Remark: Most of time, this library may used in game engines:
-**      1. send message: post send request at renderer thread, and perform send at `io_service`
-**         thread.
-**      2. receive message: unpack message at `io_service` thread, consume message at renderer
-**         thread.
-**      3. If you want use this library in other situation, you may need uncomment it.
+** Uncomment or add compiler flag -DYASIO_USE_SPSC_QUEUE to use SPSC queue in io_service
+** Remark: By default, yasio use std's queue + mutex to ensure thread safe, If you want
+**         more fast messege queue and only have one thread to call io_service write APIs,
+**         you may need uncomment it.
 */
-// #define YASIO_DISABLE_SPSC_QUEUE 1
+// #define YASIO_USE_SPSC_QUEUE 1
 
 /*
 ** Uncomment or add compiler flag -DYASIO_DISABLE_OBJECT_POOL to disable object_pool for allocating
@@ -81,30 +79,23 @@ SOFTWARE.
 #define YASIO_HAVE_SSL 1
 
 /*
-** Uncomment or add compiler flag -DYASIO_DISABLE_CONCURRENT_SINGLETON to disable concurrent singleton
+** Uncomment or add compiler flag -DYASIO_DISABLE_CONCURRENT_SINGLETON to disable concurrent
+*singleton
 */
-#define YASIO_DISABLE_CONCURRENT_SINGLETON 1
+// #define YASIO_DISABLE_CONCURRENT_SINGLETON 1
 
-/* 
+/*
 ** Workaround for 'vs2013 without full c++11 support', in the future, drop vs2013 support and
 ** follow 3 lines code will be removed
 */
-#if defined(_MSC_VER) && _MSC_VER < 1900 && !defined(YASIO_DISABLE_CONCURRENT_SINGLETON)
-  #define YASIO_DISABLE_CONCURRENT_SINGLETON 1
+#if !YASIO__HAS_FULL_CXX11 && !defined(YASIO_DISABLE_CONCURRENT_SINGLETON)
+#  define YASIO_DISABLE_CONCURRENT_SINGLETON 1
 #endif
 
 #if defined(YASIO_HEADER_ONLY)
 #  define YASIO__DECL inline
 #else
 #  define YASIO__DECL
-#endif
-
-#if defined(_MSC_VER) && _MSC_VER <= 1800
-#  define YASIO__HAVE_NS_INLINE 0
-#  define YASIO__NS_INLINE
-#else
-#  define YASIO__HAVE_NS_INLINE 1
-#  define YASIO__NS_INLINE inline
 #endif
 
 #if defined(_WIN32)
@@ -168,6 +159,13 @@ SOFTWARE.
 
 // The max Initial Bytes To Strip for length field based frame decode mechanism
 #define YASIO_MAX_IBTS 32
+
+// The fallback name servers when c-ares can't get name servers from system config,
+// For Android 8 or later, will always use the fallback name servers, for detail,
+// please see:
+//   https://github.com/c-ares/c-ares/issues/276
+//   https://github.com/c-ares/c-ares/pull/148
+#define YASIO_CARES_FALLBACK_DNS "8.8.8.8,223.5.5.5,114.114.114.114"
 
 #include "strfmt.hpp"
 

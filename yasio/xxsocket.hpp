@@ -37,6 +37,7 @@ SOFTWARE.
 #include <sstream>
 #include <vector>
 #include <chrono>
+#include <functional>
 #include "yasio/detail/config.hpp"
 
 #if defined(_MSC_VER)
@@ -208,18 +209,17 @@ inline bool IN6_IS_ADDR_GLOBAL(const in6_addr* a)
 }
 #endif
 
-// shoulde close connection condition when retval of recv <= 0
-#define SHOULD_CLOSE_0(n, errcode)                                                                 \
-  (((n) == 0) || ((n) < 0 && (errcode) != EAGAIN && (errcode) != EWOULDBLOCK && (errcode) != EINTR))
+// shoulde close connection condition when retval of recv < 0
+#define YASIO_SHOULD_CLOSE_0(ec) ((ec) != EAGAIN && (ec) != EWOULDBLOCK && (ec) != EINTR)
 
-// shoulde close connection condition when retval of send <= 0
-#define SHOULD_CLOSE_1(n, errcode)                                                                 \
-  (((n) == 0) || ((n) < 0 && (errcode) != EAGAIN && (errcode) != EWOULDBLOCK &&                    \
-                  (errcode) != EINTR && (errcode) != ENOBUFS))
+// shoulde close connection condition when retval of send < 0
+#define YASIO_SHOULD_CLOSE_1(ec)                                                                   \
+  ((ec) != EAGAIN && (ec) != EWOULDBLOCK && (ec) != EINTR && (ec) != ENOBUFS && (ec) != EPERM)
+
+#define YASIO_ADDR_ANY(af) (af == AF_INET ? "0.0.0.0" : "::")
 
 namespace yasio
 {
-
 namespace inet
 {
 
@@ -546,7 +546,7 @@ YASIO__NS_INLINE namespace ip
   };
 } // namespace ip
 
-#if !YASIO__HAVE_NS_INLINE
+#if !YASIO__HAS_NS_INLINE
 using namespace yasio::inet::ip;
 #endif
 
@@ -555,22 +555,6 @@ using namespace yasio::inet::ip;
 */
 class xxsocket
 {
-public:
-  /*
-  summary: Gets supported internet protocol versions of localhost
-  return:
-    ipsv_unavailable: The network unavailable.
-    ipsv_ipv4: Support ipv4 only.
-    ipsv_ipv6: Support ipv6 only.
-    ipsv_dual_stack:
-      Support ipv4 or ipv6, but for multi network adapters device, you should always
-      use ipv4 preferred, such as smart phone with wifi & cellular network. The smart phone's os
-      will choose wifi when it is available to avoid consume user's cash, when the cellular support
-      ipv6/ipv4 but the wifi only support ipv4, then use ipv6 will cause network issue.
-      For more detail, see: https://github.com/halx99/yasio/issues/130
-  */
-  YASIO__DECL static int getipsv(void);
-
 public: /// portable connect APIs
   // easy to connect a server ipv4 or ipv6 with local ip protocol version detect
   // for support ipv6 ONLY network.
@@ -862,22 +846,22 @@ public:
   ** @examples:
   **       set_optval(SOL_SOCKET, SO_SNDBUF, 4096);
   **       set_optval(SOL_SOCKET, SO_RCVBUF, 4096);
+  **
   ** @remark: for more detail, please see:
   **       windows: https://docs.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-setsockopt
   **       linux: https://linux.die.net/man/3/setsockopt
-  **       osx: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/getsockopt.2.html
   **
   ** @returns: If no error occurs, set_optval returns zero. Otherwise, a value of SOCKET_ERROR is
-  *returned
+  **       returned
   */
-  template <typename T> inline int set_optval(int level, int optname, const T& optval)
+  template <typename _Ty> inline int set_optval(int level, int optname, const _Ty& optval)
   {
     return set_optval(this->fd, level, optname, optval);
   }
-  template <typename T>
-  inline static int set_optval(socket_native_type sockfd, int level, int optname, const T& optval)
+  template <typename _Ty>
+  inline static int set_optval(socket_native_type sockfd, int level, int optname, const _Ty& optval)
   {
-    return set_optval(sockfd, level, optname, &optval, static_cast<socklen_t>(sizeof(T)));
+    return set_optval(sockfd, level, optname, &optval, static_cast<socklen_t>(sizeof(_Ty)));
   }
 
   int set_optval(int level, int optname, const void* optval, socklen_t optlen)
@@ -895,21 +879,27 @@ public:
   **     level: The level at which the option is defined. Example: SOL_SOCKET.
   **   optname: The socket option for which the value is to be retrieved.
   **            Example: SO_ACCEPTCONN. The optname value must be a socket option defined within the
-  *specified level, or behavior is undefined.
+  **            specified level, or behavior is undefined.
   **    optval: A variable to the buffer in which the value for the requested option is to be
-  *returned.
+  **            returned.
   **
   ** @returns: If no error occurs, get_optval returns zero. Otherwise, a value of SOCKET_ERROR is
   *returned
   */
-  template <typename T> inline int get_optval(int level, int optname, T& optval) const
+  template <typename _Ty> inline _Ty get_optval(int level, int optname) const
+  {
+    _Ty optval = {};
+    get_optval(this->fd, level, optname, optval);
+    return optval;
+  }
+  template <typename _Ty> inline int get_optval(int level, int optname, _Ty& optval) const
   {
     return get_optval(this->fd, level, optname, optval);
   }
-  template <typename T>
-  inline static int get_optval(socket_native_type sockfd, int level, int optname, T& optval)
+  template <typename _Ty>
+  inline static int get_optval(socket_native_type sockfd, int level, int optname, _Ty& optval)
   {
-    socklen_t optlen = static_cast<socklen_t>(sizeof(T));
+    socklen_t optlen = static_cast<socklen_t>(sizeof(_Ty));
     return get_optval(sockfd, level, optname, &optval, &optlen);
   }
   static int get_optval(socket_native_type sockfd, int level, int optname, void* optval,
@@ -922,16 +912,16 @@ public:
   ** @params :
   **          see MSDN or man page
   ** @returns: If no error occurs, ioctl returns zero. Otherwise, a value of SOCKET_ERROR is
-  *returned
+  **           returned
   **
   **
   **
   */
-  template <typename _T> inline int ioctl(long cmd, const _T& value) const
+  template <typename _Ty> inline int ioctl(long cmd, const _Ty& value) const
   {
     return xxsocket::ioctl(this->fd, cmd, value);
   }
-  template <typename _T> inline static int ioctl(socket_native_type s, long cmd, const _T& value)
+  template <typename _Ty> inline static int ioctl(socket_native_type s, long cmd, const _Ty& value)
   {
     u_long argp = static_cast<u_long>(value);
     return ::ioctlsocket(s, cmd, &argp);
@@ -942,16 +932,16 @@ public:
   **          s: the socket fd, it's different with system
   **          see MSDN or man page
   ** @returns: If no error occurs, returns >= 0. Otherwise, a value of -1 is
-  *returned
+  **          returned
   */
-  YASIO__DECL static int select(int s, fd_set* readfds, fd_set* writefds, fd_set* exceptfds,
-                                std::chrono::microseconds wtimeout);
+  YASIO__DECL static int select(socket_native_type s, fd_set* readfds, fd_set* writefds,
+                                fd_set* exceptfds, std::chrono::microseconds wtimeout);
 
   /* @brief: check is a client socket alive
   ** @params :
   **          see MSDN or man page
   ** @returns: If no error occurs, alive returns true. Otherwise, a value of false is
-  *returned
+  **          returned
   */
   YASIO__DECL bool alive(void) const;
 
@@ -1053,8 +1043,31 @@ public:
     return error;
   }
 
+  /*
+  ** @brief:: Gets supported internet protocol versions of localhost
+  ** @returns:
+  **  ipsv_unavailable: The network unavailable.
+  **  ipsv_ipv4: Support ipv4 only.
+  **  ipsv_ipv6: Support ipv6 only.
+  **  ipsv_dual_stack:
+  **    Support ipv4 or ipv6, but for multi network adapters device, you should always
+  **    use ipv4 preferred, such as smart phone with wifi & cellular network. The smart phone's os
+  **    will choose wifi when it is available to avoid consume user's cash, when the cellular
+  *support
+  **    ipv6/ipv4 but the wifi only support ipv4, then use ipv6 will cause network issue.
+  **    For more detail, see: https://github.com/halx99/yasio/issues/130
+  */
+  YASIO__DECL static int getipsv(void);
+
+  /*
+  ** @brief: Traverse local device network adapter address with valid ip
+  ** @params:
+  **  handler: prototype is [](const ip::endpoint& ep)->bool
+  */
+  YASIO__DECL static void traverse_local_address(std::function<bool(const ip::endpoint&)> handler);
+
 protected:
-  YASIO__DECL static void reregister_descriptor(int s, fd_set* fds);
+  YASIO__DECL static void reregister_descriptor(socket_native_type s, fd_set* fds);
 
 private:
   socket_native_type fd;
@@ -1073,6 +1086,10 @@ inline bool operator<(const yasio::inet::ip::endpoint& lhs, const yasio::inet::i
     return (static_cast<uint64_t>(lhs.in4_.sin_addr.s_addr) + lhs.in4_.sin_port) <
            (static_cast<uint64_t>(rhs.in4_.sin_addr.s_addr) + rhs.in4_.sin_port);
   return ::memcmp(&lhs, &rhs, sizeof(rhs)) < 0;
+}
+inline bool operator==(const yasio::inet::ip::endpoint& lhs, const yasio::inet::ip::endpoint& rhs)
+{ // apply operator == to operands
+  return !(lhs < rhs) && !(rhs < lhs);
 }
 } // namespace std
 

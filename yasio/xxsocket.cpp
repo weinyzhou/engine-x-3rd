@@ -462,117 +462,6 @@ static int inet_pton6(const char* src, u_char* dst)
 } // namespace inet
 } // namespace yasio
 
-static int getipsv_internal(void)
-{
-  int flags = 0;
-  int count = 0;
-  /* Only windows support use getaddrinfo to get local ip address(not loopback or linklocal),
-    Because nullptr same as "localhost": always return loopback address and at unix/linux the
-    gethostname always return "localhost"
-    */
-#if defined(_WIN32)
-  char hostname[256] = {0};
-  gethostname(hostname, sizeof(hostname));
-
-  // ipv4 & ipv6
-  addrinfo hint, *ailist = nullptr;
-  memset(&hint, 0x0, sizeof(hint));
-
-  endpoint ep;
-#  if defined(_DEBUG)
-  YASIO_LOG("getipsv_internal: localhost=%s", hostname);
-#  endif
-  int iret = getaddrinfo(hostname, nullptr, &hint, &ailist);
-
-  const char* errmsg = nullptr;
-  if (ailist != nullptr)
-  {
-    for (auto aip = ailist; aip != NULL; aip = aip->ai_next)
-    {
-      memcpy(&ep, aip->ai_addr, aip->ai_addrlen);
-
-      auto straddr = ep.to_string();
-      YASIO_LOGV("getipsv_internal: endpoint=%s", straddr.c_str());
-      ++count;
-      switch (ep.af())
-      {
-        case AF_INET:
-          if (!IN4_IS_ADDR_LOOPBACK(&ep.in4_.sin_addr) && !IN4_IS_ADDR_LINKLOCAL(&ep.in4_.sin_addr))
-            flags |= ipsv_ipv4;
-          break;
-        case AF_INET6:
-          if (IN6_IS_ADDR_GLOBAL(&ep.in6_.sin6_addr))
-            flags |= ipsv_ipv6;
-          break;
-      }
-      if (flags == ipsv_dual_stack)
-        break;
-    }
-    freeaddrinfo(ailist);
-  }
-  else
-  {
-    errmsg = xxsocket::gai_strerror(iret);
-  }
-#else // __APPLE__ or linux with <ifaddrs.h>
-  struct ifaddrs *ifaddr, *ifa;
-  /*
-  The value of ifa->ifa_name:
-   Android:
-    wifi: "w"
-    cellular: "r"
-   iOS:
-    wifi: "en0"
-    cellular: "pdp_ip0"
-  */
-
-  if (getifaddrs(&ifaddr) == -1)
-  {
-    YASIO_LOG("getipsv_internal: getifaddrs fail!");
-    return ipsv_ipv4;
-  }
-
-  endpoint ep;
-  /* Walk through linked list*/
-  for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
-  {
-    if (ifa->ifa_addr == NULL)
-      continue;
-
-    ep.assign(ifa->ifa_addr);
-
-    auto straddr = ep.to_string();
-    if (!straddr.empty())
-    {
-      ++count;
-      YASIO_LOGV("getipsv_internal: endpoint=%s", straddr.c_str());
-    }
-
-    switch (ep.af())
-    {
-      case AF_INET:
-        if (!IN4_IS_ADDR_LOOPBACK(&ep.in4_.sin_addr) && !IN4_IS_ADDR_LINKLOCAL(&ep.in4_.sin_addr))
-          flags |= ipsv_ipv4;
-        break;
-      case AF_INET6:
-        if (IN6_IS_ADDR_GLOBAL(&ep.in6_.sin6_addr))
-          flags |= ipsv_ipv6;
-        break;
-    }
-    if (flags == ipsv_dual_stack)
-      break;
-  }
-
-  freeifaddrs(ifaddr);
-#endif
-
-  YASIO_LOG("getipsv_internal: flags=%d, ifa_count=%d", flags, count);
-
-  return flags;
-}
-
-int xxsocket::getipsv(void) { return getipsv_internal(); }
-
 int xxsocket::xpconnect(const char* hostname, u_short port, u_short local_port)
 {
   auto flags = getipsv();
@@ -679,7 +568,7 @@ int xxsocket::pconnect(const endpoint& ep, u_short local_port)
   if (this->reopen(ep.af()))
   {
     if (local_port != 0)
-      this->bind("0.0.0.0", local_port);
+      this->bind(YASIO_ADDR_ANY(ep.af()), local_port);
     return this->connect(ep);
   }
   return -1;
@@ -691,7 +580,7 @@ int xxsocket::pconnect_n(const endpoint& ep, const std::chrono::microseconds& wt
   if (this->reopen(ep.af()))
   {
     if (local_port != 0)
-      this->bind("0.0.0.0", local_port);
+      this->bind(YASIO_ADDR_ANY(ep.af()), local_port);
     return this->connect_n(ep, wtimeout);
   }
   return -1;
@@ -702,7 +591,7 @@ int xxsocket::pconnect_n(const endpoint& ep, u_short local_port)
   if (this->reopen(ep.af()))
   {
     if (local_port != 0)
-      this->bind("0.0.0.0", local_port);
+      this->bind(YASIO_ADDR_ANY(ep.af()), local_port);
     return xxsocket::connect_n(this->fd, ep);
   }
   return -1;
@@ -777,6 +666,122 @@ int xxsocket::resolve_tov6(std::vector<endpoint>& endpoints, const char* hostnam
         return false;
       },
       hostname, port, AF_INET6, AI_ALL | AI_V4MAPPED, socktype);
+}
+
+int xxsocket::getipsv(void)
+{
+  int flags = 0;
+  xxsocket::traverse_local_address([&](const ip::endpoint& ep) -> bool {
+    switch (ep.af())
+    {
+      case AF_INET:
+        flags |= ipsv_ipv4;
+        break;
+      case AF_INET6:
+        flags |= ipsv_ipv6;
+        break;
+    }
+    return (flags == ipsv_dual_stack);
+  });
+  YASIO_LOG("xxsocket::getipsv: flags=%d", flags);
+  return flags;
+}
+
+void xxsocket::traverse_local_address(std::function<bool(const ip::endpoint&)> handler)
+{
+  bool done = false;
+  /* Only windows support use getaddrinfo to get local ip address(not loopback or linklocal),
+    Because nullptr same as "localhost": always return loopback address and at unix/linux the
+    gethostname always return "localhost"
+    */
+#if defined(_WIN32)
+  char hostname[256] = {0};
+  ::gethostname(hostname, sizeof(hostname));
+
+  // ipv4 & ipv6
+  addrinfo hint, *ailist = nullptr;
+  ::memset(&hint, 0x0, sizeof(hint));
+
+  endpoint ep;
+#  if defined(_DEBUG)
+  YASIO_LOG("xxsocket::traverse_local_address: localhost=%s", hostname);
+#  endif
+  int iret = getaddrinfo(hostname, nullptr, &hint, &ailist);
+
+  const char* errmsg = nullptr;
+  if (ailist != nullptr)
+  {
+    for (auto aip = ailist; aip != NULL; aip = aip->ai_next)
+    {
+      ::memcpy(&ep, aip->ai_addr, aip->ai_addrlen);
+
+      YASIO_LOGV("xxsocket::traverse_local_address: ip=%s", ep.ip().c_str());
+      switch (ep.af())
+      {
+        case AF_INET:
+          if (!IN4_IS_ADDR_LOOPBACK(&ep.in4_.sin_addr) && !IN4_IS_ADDR_LINKLOCAL(&ep.in4_.sin_addr))
+            done = handler(ep);
+          break;
+        case AF_INET6:
+          if (IN6_IS_ADDR_GLOBAL(&ep.in6_.sin6_addr))
+            done = handler(ep);
+          break;
+      }
+      if (done)
+        break;
+    }
+    freeaddrinfo(ailist);
+  }
+  else
+  {
+    errmsg = xxsocket::gai_strerror(iret);
+  }
+#else // __APPLE__ or linux with <ifaddrs.h>
+  struct ifaddrs *ifaddr, *ifa;
+  /*
+  The value of ifa->ifa_name:
+   Android:
+    wifi: "w"
+    cellular: "r"
+   iOS:
+    wifi: "en0"
+    cellular: "pdp_ip0"
+  */
+
+  if (yasio::getifaddrs(&ifaddr) == -1)
+  {
+    YASIO_LOG("xxsocket::traverse_local_address: getifaddrs fail!");
+    return;
+  }
+
+  endpoint ep;
+  /* Walk through linked list*/
+  for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
+  {
+    if (ifa->ifa_addr == NULL)
+      continue;
+
+    ep.assign(ifa->ifa_addr);
+
+    YASIO_LOGV("xxsocket::traverse_local_address: ip=%s", ep.ip().c_str());
+
+    switch (ep.af())
+    {
+      case AF_INET:
+        if (!IN4_IS_ADDR_LOOPBACK(&ep.in4_.sin_addr) && !IN4_IS_ADDR_LINKLOCAL(&ep.in4_.sin_addr))
+          done = handler(ep);
+        break;
+      case AF_INET6:
+        if (IN6_IS_ADDR_GLOBAL(&ep.in6_.sin6_addr))
+          done = handler(ep);
+        break;
+    }
+    if (done)
+      break;
+  }
+
+  yasio::freeifaddrs(ifaddr);
+#endif
 }
 
 xxsocket::xxsocket(void) : fd(invalid_socket) {}
@@ -1025,7 +1030,7 @@ int xxsocket::connect_n(socket_native_type s, const endpoint& ep,
   if (n == 0)
     goto done; /* connect completed immediately */
 
-  if ((n = xxsocket::select(static_cast<int>(s), &rset, &wset, NULL, wtimeout)) <= 0)
+  if ((n = xxsocket::select(s, &rset, &wset, NULL, wtimeout)) <= 0)
     error = xxsocket::get_last_errno();
   else if ((FD_ISSET(s, &rset) || FD_ISSET(s, &wset)))
   { /* Everythings are ok */
@@ -1227,7 +1232,7 @@ int xxsocket::handle_read_ready(socket_native_type s, const std::chrono::microse
   return xxsocket::select(s, &readfds, nullptr, nullptr, wtimeout);
 }
 
-int xxsocket::select(int s, fd_set* readfds, fd_set* writefds, fd_set* exceptfds,
+int xxsocket::select(socket_native_type s, fd_set* readfds, fd_set* writefds, fd_set* exceptfds,
                      std::chrono::microseconds wtimeout)
 {
   int n = 0;
@@ -1260,7 +1265,7 @@ int xxsocket::select(int s, fd_set* readfds, fd_set* writefds, fd_set* exceptfds
   return n;
 }
 
-void xxsocket::reregister_descriptor(int s, fd_set* fds)
+void xxsocket::reregister_descriptor(socket_native_type s, fd_set* fds)
 {
   if (fds)
   {

@@ -591,10 +591,10 @@ static bool js_yasio_ibstream_read_v(JSContext* ctx, uint32_t argc, jsval* vp)
   switch (length_field_bits)
   {
     case -1: // variant bits
-      sv = cobj->read_va();
+      sv = cobj->read_v();
       break;
     case 32: // 32bits
-      sv = cobj->read_v();
+      sv = cobj->read_v32();
       break;
     case 16: // 16bits
       sv = cobj->read_v16();
@@ -1115,10 +1115,10 @@ bool js_yasio_obstream_write_v(JSContext* ctx, uint32_t argc, jsval* vp)
   switch (length_field_bits)
   {
     case -1: // variant bits
-      cobj->write_va(sva);
+      cobj->write_v(sva);
       break;
     case 32: // 32bits
-      cobj->write_v(sva);
+      cobj->write_v32(sva);
       break;
     case 16: // 16bits
       cobj->write_v16(sva);
@@ -1537,7 +1537,7 @@ static bool jsb_yasio_io_service__ctor(JSContext* ctx, uint32_t argc, jsval* vp)
   return false;
 }
 
-bool js_yasio_io_service_start_service(JSContext* ctx, uint32_t argc, jsval* vp)
+bool js_yasio_io_service_start(JSContext* ctx, uint32_t argc, jsval* vp)
 {
   bool ok          = true;
   io_service* cobj = nullptr;
@@ -1547,7 +1547,7 @@ bool js_yasio_io_service_start_service(JSContext* ctx, uint32_t argc, jsval* vp)
   obj.set(args.thisv().toObjectOrNull());
   js_proxy_t* proxy = jsb_get_js_proxy(obj);
   cobj              = (io_service*)(proxy ? proxy->ptr : nullptr);
-  JSB_PRECONDITION2(cobj, ctx, false, "js_yasio_io_service_start_service : Invalid Native Object");
+  JSB_PRECONDITION2(cobj, ctx, false, "js_yasio_io_service_start : Invalid Native Object");
 
   do
   {
@@ -1569,18 +1569,18 @@ bool js_yasio_io_service_start_service(JSContext* ctx, uint32_t argc, jsval* vp)
         }
       };
 
-      cobj->start_service(std::move(fnwrap));
+      cobj->start(std::move(fnwrap));
 
       args.rval().setUndefined();
       return true;
     }
   } while (0);
 
-  JS_ReportError(ctx, "js_yasio_io_service_start_service : wrong number of arguments");
+  JS_ReportError(ctx, "js_yasio_io_service_start : wrong number of arguments");
   return false;
 }
 
-bool js_yasio_io_service_stop_service(JSContext* ctx, uint32_t argc, jsval* vp)
+bool js_yasio_io_service_stop(JSContext* ctx, uint32_t argc, jsval* vp)
 {
   bool ok          = true;
   io_service* cobj = nullptr;
@@ -1590,9 +1590,9 @@ bool js_yasio_io_service_stop_service(JSContext* ctx, uint32_t argc, jsval* vp)
   obj.set(args.thisv().toObjectOrNull());
   js_proxy_t* proxy = jsb_get_js_proxy(obj);
   cobj              = (io_service*)(proxy ? proxy->ptr : nullptr);
-  JSB_PRECONDITION2(cobj, ctx, false, "js_yasio_io_service_stop_service : Invalid Native Object");
+  JSB_PRECONDITION2(cobj, ctx, false, "js_yasio_io_service_stop : Invalid Native Object");
 
-  cobj->stop_service();
+  cobj->stop();
   return true;
 }
 
@@ -1736,6 +1736,7 @@ bool js_yasio_io_service_set_option(JSContext* ctx, uint32_t argc, jsval* vp)
       auto opt  = arg0.toInt32();
       switch (opt)
       {
+        case YOPT_C_LOCAL_HOST:
         case YOPT_C_REMOTE_HOST:
           if (args[2].isString())
           {
@@ -1751,6 +1752,7 @@ bool js_yasio_io_service_set_option(JSContext* ctx, uint32_t argc, jsval* vp)
           service->set_option(opt, args[1].toInt32(), args[2].toInt32());
           break;
         case YOPT_C_ENABLE_MCAST:
+        case YOPT_C_LOCAL_ENDPOINT:
         case YOPT_C_REMOTE_ENDPOINT:
           if (args[2].isString())
           {
@@ -1912,10 +1914,8 @@ void js_register_yasio_io_service(JSContext* ctx, JS::HandleObject global)
   static JSPropertySpec properties[] = {JS_PS_END};
 
   static JSFunctionSpec funcs[] = {
-      JS_FN("start_service", js_yasio_io_service_start_service, 2,
-            JSPROP_PERMANENT | JSPROP_ENUMERATE),
-      JS_FN("stop_service", js_yasio_io_service_stop_service, 2,
-            JSPROP_PERMANENT | JSPROP_ENUMERATE),
+      JS_FN("start", js_yasio_io_service_start, 2, JSPROP_PERMANENT | JSPROP_ENUMERATE),
+      JS_FN("stop", js_yasio_io_service_stop, 2, JSPROP_PERMANENT | JSPROP_ENUMERATE),
       JS_FN("open", js_yasio_io_service_open, 2, JSPROP_PERMANENT | JSPROP_ENUMERATE),
       JS_FN("close", js_yasio_io_service_close, 1, JSPROP_PERMANENT | JSPROP_ENUMERATE),
       JS_FN("is_open", js_yasio_io_service_is_open, 1, JSPROP_PERMANENT | JSPROP_ENUMERATE),
@@ -1983,9 +1983,11 @@ void jsb_register_yasio(JSContext* ctx, JS::HandleObject global)
   YASIO_EXPORT_ENUM(YOPT_S_TCP_KEEPALIVE);
   YASIO_EXPORT_ENUM(YOPT_S_EVENT_CB);
   YASIO_EXPORT_ENUM(YOPT_C_LFBFD_PARAMS);
+  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_HOST);
   YASIO_EXPORT_ENUM(YOPT_C_LOCAL_PORT);
-  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
+  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_ENDPOINT);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_HOST);
+  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_ENDPOINT);
   YASIO_EXPORT_ENUM(YOPT_C_ENABLE_MCAST);
   YASIO_EXPORT_ENUM(YOPT_C_DISABLE_MCAST);

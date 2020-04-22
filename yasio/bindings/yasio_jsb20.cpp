@@ -475,10 +475,10 @@ static bool js_yasio_ibstream_read_v(se::State& s)
   switch (length_field_bits)
   {
     case -1: // variant bits
-      sv = cobj->read_va();
+      sv = cobj->read_v();
       break;
     case 32: // 32bits
-      sv = cobj->read_v();
+      sv = cobj->read_v32();
       break;
     case 16: // 16bits
       sv = cobj->read_v16();
@@ -844,10 +844,10 @@ bool js_yasio_obstream_write_v(se::State& s)
   switch (length_field_bits)
   {
     case -1: // variant bits
-      cobj->write_va(sv);
+      cobj->write_v(sv);
       break;
     case 32: // 32bits
-      cobj->write_v(sv);
+      cobj->write_v32(sv);
       break;
     case 16: // 16bits
       cobj->write_v16(sv);
@@ -1150,7 +1150,7 @@ static auto jsb_yasio_io_service__dtor = jsb_yasio__dtor<io_service>;
 SE_BIND_FINALIZE_FUNC(jsb_yasio_io_service__dtor)
 SE_BIND_CTOR(jsb_yasio_io_service__ctor, __jsb_yasio_io_service_class, jsb_yasio_io_service__dtor)
 
-bool js_yasio_io_service_start_service(se::State& s)
+bool js_yasio_io_service_start(se::State& s)
 {
   auto cobj = (io_service*)s.nativeThisObject();
   SE_PRECONDITION2(cobj, false, ": Invalid Native Object");
@@ -1179,7 +1179,7 @@ bool js_yasio_io_service_start_service(se::State& s)
         }
       };
 
-      cobj->start_service(std::move(fnwrap));
+      cobj->start(std::move(fnwrap));
 
       s.rval().setUndefined();
       return true;
@@ -1189,17 +1189,17 @@ bool js_yasio_io_service_start_service(se::State& s)
   SE_REPORT_ERROR("wrong number of arguments: %d, was expecting %d", (int)argc, 2);
   return false;
 }
-SE_BIND_FUNC(js_yasio_io_service_start_service)
+SE_BIND_FUNC(js_yasio_io_service_start)
 
-bool js_yasio_io_service_stop_service(se::State& s)
+bool js_yasio_io_service_stop(se::State& s)
 {
   auto cobj = (io_service*)s.nativeThisObject();
   SE_PRECONDITION2(cobj, false, ": Invalid Native Object");
 
-  cobj->stop_service();
+  cobj->stop();
   return true;
 }
-SE_BIND_FUNC(js_yasio_io_service_stop_service)
+SE_BIND_FUNC(js_yasio_io_service_stop)
 
 bool js_yasio_io_service_open(se::State& s)
 {
@@ -1325,6 +1325,7 @@ bool js_yasio_io_service_set_option(se::State& s)
       switch (opt)
       {
         case YOPT_C_REMOTE_HOST:
+        case YOPT_C_LOCAL_HOST:
           service->set_option(opt, args[1].toInt32(), args[2].toString().c_str());
           break;
 #if YASIO_VERSION_NUM >= 0x033100
@@ -1335,6 +1336,7 @@ bool js_yasio_io_service_set_option(se::State& s)
           service->set_option(opt, args[1].toInt32(), args[2].toInt32());
           break;
         case YOPT_C_ENABLE_MCAST:
+        case YOPT_C_LOCAL_ENDPOINT:
         case YOPT_C_REMOTE_ENDPOINT:
           service->set_option(opt, args[1].toInt32(), args[2].toString().c_str(),
                               args[3].toInt32());
@@ -1469,8 +1471,8 @@ void js_register_yasio_io_service(se::Object* obj)
   auto cls = se::Class::create("io_service", obj, nullptr, _SE(jsb_yasio_io_service__ctor));
 
   DEFINE_IO_SERVICE_FUNC(set_option);
-  DEFINE_IO_SERVICE_FUNC(start_service);
-  DEFINE_IO_SERVICE_FUNC(stop_service);
+  DEFINE_IO_SERVICE_FUNC(start);
+  DEFINE_IO_SERVICE_FUNC(stop);
   DEFINE_IO_SERVICE_FUNC(open);
   DEFINE_IO_SERVICE_FUNC(close);
   DEFINE_IO_SERVICE_FUNC(is_open);
@@ -1536,9 +1538,11 @@ bool jsb_register_yasio(se::Object* obj)
   YASIO_EXPORT_ENUM(YOPT_S_TCP_KEEPALIVE);
   YASIO_EXPORT_ENUM(YOPT_S_EVENT_CB);
   YASIO_EXPORT_ENUM(YOPT_C_LFBFD_PARAMS);
+  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_HOST);
   YASIO_EXPORT_ENUM(YOPT_C_LOCAL_PORT);
-  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
+  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_ENDPOINT);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_HOST);
+  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_ENDPOINT);
   YASIO_EXPORT_ENUM(YOPT_C_ENABLE_MCAST);
   YASIO_EXPORT_ENUM(YOPT_C_DISABLE_MCAST);

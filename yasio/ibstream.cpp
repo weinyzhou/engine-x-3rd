@@ -42,13 +42,13 @@ namespace yasio
 
 ibstream_view::ibstream_view() { this->reset("", 0); }
 
-ibstream_view::ibstream_view(const void* data, int size) { this->reset(data, size); }
+ibstream_view::ibstream_view(const void* data, size_t size) { this->reset(data, size); }
 
 ibstream_view::ibstream_view(const obstream* obs) { this->reset(obs->data(), obs->length()); }
 
 ibstream_view::~ibstream_view() {}
 
-void ibstream_view::reset(const void* data, int size)
+void ibstream_view::reset(const void* data, size_t size)
 {
   first_ = ptr_ = static_cast<const char*>(data);
   last_         = first_ + size;
@@ -97,13 +97,13 @@ uint32_t ibstream_view::read_u24()
   return ntohl(value) >> 8;
 }
 
-cxx17::string_view ibstream_view::read_va()
+cxx17::string_view ibstream_view::read_v()
 {
   int count = read_i7();
   return read_bytes(count);
 }
 
-void ibstream_view::read_v(std::string& oav)
+void ibstream_view::read_v32(std::string& oav)
 {
   auto sv = read_vx<uint32_t>();
   oav.assign(sv.data(), sv.length());
@@ -121,13 +121,15 @@ void ibstream_view::read_v8(std::string& oav)
   oav.assign(sv.data(), sv.length());
 }
 
-cxx17::string_view ibstream_view::read_v() { return read_vx<uint32_t>(); }
+cxx17::string_view ibstream_view::read_v32() { return read_vx<uint32_t>(); }
 cxx17::string_view ibstream_view::read_v16() { return read_vx<uint16_t>(); }
 cxx17::string_view ibstream_view::read_v8() { return read_vx<uint8_t>(); }
 
-void ibstream_view::read_v(void* oav, int len) { read_vx<uint32_t>().copy((char*)oav, len); }
+void ibstream_view::read_v32(void* oav, int len) { read_vx<uint32_t>().copy((char*)oav, len); }
 void ibstream_view::read_v16(void* oav, int len) { read_vx<uint16_t>().copy((char*)oav, len); }
 void ibstream_view::read_v8(void* oav, int len) { read_vx<uint8_t>().copy((char*)oav, len); }
+
+char ibstream_view::read_byte() { return *consume(1); }
 
 void ibstream_view::read_bytes(std::string& oav, int len)
 {

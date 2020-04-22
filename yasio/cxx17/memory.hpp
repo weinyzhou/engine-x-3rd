@@ -1,4 +1,3 @@
-//////////////////////////////////////////////////////////////////////////////////////////
 // A cross platform socket APIs, support ios & android & wp8 & window store
 // universal app
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -6,7 +5,6 @@
 The MIT License (MIT)
 
 Copyright (c) 2012-2020 HALX99
-
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -25,43 +23,28 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-#ifndef YASIO__UTILS_HPP
-#define YASIO__UTILS_HPP
-#include <assert.h>
-#include <chrono>
-#include <algorithm>
+
+#ifndef YASIO__MEMORY
+#define YASIO__MEMORY
+#include <memory>
+
 #include "yasio/compiler/feature_test.hpp"
 
-namespace yasio
-{
-// typedefs
-typedef long long highp_time_t;
-typedef std::chrono::high_resolution_clock steady_clock_t;
-typedef std::chrono::system_clock system_clock_t;
-
-// The high precision nano seconds timestamp
-template <typename _Ty = steady_clock_t> inline long long xhighp_clock()
-{
-  auto duration = _Ty::now().time_since_epoch();
-  return std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
-}
-// The high precision micro seconds timestamp
-template <typename _Ty = steady_clock_t> inline long long highp_clock()
-{
-  return xhighp_clock<_Ty>() / 1000LL;
-}
-
+/// string_view workaround on c++11
 #if YASIO__HAS_CXX17
-using std::clamp;
-#else
-template <typename _Ty> const _Ty& clamp(const _Ty& v, const _Ty& lo, const _Ty& hi)
+namespace cxx17
 {
-  assert(!(hi < lo));
-  return v < lo ? lo : hi < v ? hi : v;
-}
-#endif
+using std::make_unique;
+} // namespace cxx17
 
-template <typename _Ty> inline void invoke_dtor(_Ty* p) { p->~_Ty(); }
-} // namespace yasio
+#else
+namespace cxx17
+{
+template <typename _Ty, typename... _Args> std::unique_ptr<_Ty> make_unique(_Args&&... args)
+{
+  return std::unique_ptr<_Ty>(new _Ty(std::forward<_Args>(args)...));
+}
+} // namespace cxx17
+#endif
 
 #endif

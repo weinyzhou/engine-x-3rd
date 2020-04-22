@@ -40,9 +40,9 @@ static auto obstream_write_v = [](yasio::obstream* obs, cxx17::string_view val,
   switch (length_field_bits)
   {
     case -1:
-      return obs->write_va(val);
-    case 32:
       return obs->write_v(val);
+    case 32:
+      return obs->write_v32(val);
     case 16:
       return obs->write_v16(val);
     default:
@@ -56,9 +56,9 @@ static auto ibstream_read_v = [](yasio::ibstream* ibs, int length_field_bits) {
   switch (length_field_bits)
   {
     case -1:
-      return ibs->read_va();
-    case 32:
       return ibs->read_v();
+    case 32:
+      return ibs->read_v32();
     case 16:
       return ibs->read_v16();
     default:
@@ -118,15 +118,15 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
                            (std::max)(static_cast<int>(hosts.size()), 1));
           }),
       sol::meta_function::garbage_collect,
-      sol::destructor([](io_service& memory_from_lua) { memory_from_lua.~io_service(); }),
-      "start_service",
+      sol::destructor([](io_service& memory_from_lua) { memory_from_lua.~io_service(); }), "start",
       [](io_service* service, sol::function cb) {
-        service->start_service([=](event_ptr ev) { cb(std::move(ev)); });
+        service->start([=](event_ptr ev) { cb(std::move(ev)); });
       },
-      "stop_service", &io_service::stop_service, "set_option",
+      "stop", &io_service::stop, "set_option",
       [](io_service* service, int opt, sol::variadic_args va) {
         switch (opt)
         {
+          case YOPT_C_LOCAL_HOST:
           case YOPT_C_REMOTE_HOST:
             service->set_option(opt, static_cast<int>(va[0]), va[1].as<const char*>());
             break;
@@ -138,6 +138,7 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
             service->set_option(opt, static_cast<int>(va[0]), static_cast<int>(va[1]));
             break;
           case YOPT_C_ENABLE_MCAST:
+          case YOPT_C_LOCAL_ENDPOINT:
           case YOPT_C_REMOTE_ENDPOINT:
             service->set_option(opt, static_cast<int>(va[0]), va[1].as<const char*>(),
                                 static_cast<int>(va[2]));
@@ -247,7 +248,7 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
       "seek", &yasio::ibstream_view::seek, "length", &yasio::ibstream_view::length, "to_string",
       [](yasio::ibstream* ibs) { return cxx17::string_view(ibs->data(), ibs->length()); });
 
-  lyasio["highp_clock"] = &highp_clock<highp_clock_t>;
+  lyasio["highp_clock"] = &highp_clock<steady_clock_t>;
   lyasio["highp_time"]  = &highp_clock<system_clock_t>;
 
   // ##-- yasio enums
@@ -269,9 +270,11 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
   YASIO_EXPORT_ENUM(YOPT_S_TCP_KEEPALIVE);
   YASIO_EXPORT_ENUM(YOPT_S_EVENT_CB);
   YASIO_EXPORT_ENUM(YOPT_C_LFBFD_PARAMS);
+  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_HOST);
   YASIO_EXPORT_ENUM(YOPT_C_LOCAL_PORT);
-  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
+  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_ENDPOINT);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_HOST);
+  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_ENDPOINT);
   YASIO_EXPORT_ENUM(YOPT_C_ENABLE_MCAST);
   YASIO_EXPORT_ENUM(YOPT_C_DISABLE_MCAST);
@@ -406,14 +409,14 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
                 return new io_service(!hosts.empty() ? &hosts.front() : nullptr,
                                       (std::max)(static_cast<int>(hosts.size()), 1));
               })
-          .addStaticFunction("start_service",
+          .addStaticFunction("start",
                              [](io_service* service, kaguya::LuaFunction cb) {
                                io_event_cb_t fnwrap = [=](event_ptr e) mutable -> void {
                                  cb(e.get());
                                };
-                               service->start_service(std::move(fnwrap));
+                               service->start(std::move(fnwrap));
                              })
-          .addFunction("stop_service", &io_service::stop_service)
+          .addFunction("stop", &io_service::stop)
           .addFunction("dispatch", &io_service::dispatch)
           .addFunction("open", &io_service::open)
           .addOverloadedFunctions(
@@ -448,6 +451,7 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
                                               kaguya::VariadicArgType args) {
             switch (opt)
             {
+              case YOPT_C_LOCAL_HOST:
               case YOPT_C_REMOTE_HOST:
                 service->set_option(opt, static_cast<int>(args[0]),
                                     static_cast<const char*>(args[1]));
@@ -461,6 +465,7 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
                 service->set_option(opt, static_cast<int>(args[0]), static_cast<int>(args[1]));
                 break;
               case YOPT_C_ENABLE_MCAST:
+              case YOPT_C_LOCAL_ENDPOINT:
               case YOPT_C_REMOTE_ENDPOINT:
                 service->set_option(opt, static_cast<int>(args[0]),
                                     static_cast<const char*>(args[1]), static_cast<int>(args[2]));
@@ -572,7 +577,7 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
                                   .setConstructors<yasio::ibstream(std::vector<char>),
                                                    yasio::ibstream(const yasio::obstream*)>());
 
-  lyasio.setField("highp_clock", &highp_clock<highp_clock_t>);
+  lyasio.setField("highp_clock", &highp_clock<steady_clock_t>);
   lyasio.setField("highp_time", &highp_clock<system_clock_t>);
 
   // ##-- yasio enums
@@ -594,9 +599,11 @@ YASIO_LUA_API int luaopen_yasio(lua_State* L)
   YASIO_EXPORT_ENUM(YOPT_S_TCP_KEEPALIVE);
   YASIO_EXPORT_ENUM(YOPT_S_EVENT_CB);
   YASIO_EXPORT_ENUM(YOPT_C_LFBFD_PARAMS);
+  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_HOST);
   YASIO_EXPORT_ENUM(YOPT_C_LOCAL_PORT);
-  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
+  YASIO_EXPORT_ENUM(YOPT_C_LOCAL_ENDPOINT);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_HOST);
+  YASIO_EXPORT_ENUM(YOPT_C_REMOTE_PORT);
   YASIO_EXPORT_ENUM(YOPT_C_REMOTE_ENDPOINT);
   YASIO_EXPORT_ENUM(YOPT_C_ENABLE_MCAST);
   YASIO_EXPORT_ENUM(YOPT_C_DISABLE_MCAST);

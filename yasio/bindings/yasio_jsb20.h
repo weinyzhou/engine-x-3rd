@@ -25,8 +25,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-
-#pragma once
+#ifndef YASIO__JSB20_HPP
+#define YASIO__JSB20_HPP
 namespace se
 {
 class Object;
@@ -43,3 +43,6 @@ namespace stimer
 void clear();
 } // namespace stimer
 } // namespace yasio_jsb
+
+#endif
+

@@ -1,10 +1,12 @@
-// A cross platform socket APIs, support ios & android & wp8 & window store
-// universal app
+//////////////////////////////////////////////////////////////////////////////////////////
+// A cross platform socket APIs, support ios & android & wp8 & window store universal app
+//
 //////////////////////////////////////////////////////////////////////////////////////////
 /*
 The MIT License (MIT)
 
 Copyright (c) 2012-2020 HALX99
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -23,21 +25,19 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-#ifndef YASIO__MEMORY
-#define YASIO__MEMORY
-#include <memory>
+package org.yasio;
 
-#include "yasio/compiler/feature_test.hpp"
+import android.content.Context;
 
-/// The make_unique workaround on c++11
-#if !YASIO__HAS_CXX17
-namespace cxx17
-{
-template <typename _Ty, typename... _Args> std::unique_ptr<_Ty> make_unique(_Args&&... args)
-{
-  return std::unique_ptr<_Ty>(new _Ty(std::forward<_Args>(args)...));
+public final class AppGlobals {
+    private static Context sApplicationContext = null;
+
+    public static void init(Context ctx) {
+        sApplicationContext = ctx.getApplicationContext();
+    }
+
+    @SuppressWarnings("unused")
+    public static Context getApplicationContext() {
+        return sApplicationContext;
+    }
 }
-} // namespace cxx17
-#endif
-
-#endif

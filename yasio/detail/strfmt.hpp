@@ -53,6 +53,7 @@ template <> struct format_traits<char>
   {
     return vsnprintf(_Buffer, _BufferCount, _Format, _ArgList);
   }
+  static const char* report_error() { return "yasio::_strfmt: an error is encountered!"; }
 };
 template <> struct format_traits<wchar_t>
 {
@@ -62,10 +63,13 @@ template <> struct format_traits<wchar_t>
   {
     return vswprintf(_Buffer, _BufferCount, _Format, _ArgList);
   }
+  static const wchar_t* report_error() { return L"yasio::_strfmt: an error is encountered!"; }
 };
 
 /*
  * --- This is a C++ universal sprintf in the future, works correct at all compilers.
+ * Notes: should call v_start/va_end every time when call vsnprintf,
+ *  see: https://github.com/cocos2d/cocos2d-x/pull/18426
  */
 template <class _Elem, class _Traits = std::char_traits<_Elem>,
           class _Alloc = std::allocator<_Elem>>
@@ -96,17 +100,35 @@ inline std::basic_string<_Elem, _Traits, _Alloc> _strfmt(size_t n, const _Elem* 
   }
   else
   { // handle return -1 when buffer insufficient
+    /*
+    vs2013/older & glibc <= 2.0.6, they would return -1 when the output was truncated.
+    see: http://man7.org/linux/man-pages/man3/vsnprintf.3.html
+    */
+#if (defined(__linux__) && ((__GLIBC__ < 2) || ((__GLIBC__ == 2) && (__GLIBC_MINOR__ < 1)))) ||    \
+    (defined(_MSC_VER) && _MSC_VER < 1900)
+    enum : size_t
+    {
+      enlarge_limits = (1 << 20), // limits the buffer cost memory less than 2MB
+    };
     do
     {
-      buffer.resize(buffer.length() * 3 / 2);
+      buffer.resize(buffer.length() << 1);
 
       va_start(args, format);
       nret = format_traits<_Elem>::format(&buffer.front(), buffer.length() + 1, format, args);
       va_end(args);
 
-    } while (nret < 0);
-
-    buffer.resize(nret);
+    } while (nret < 0 && buffer.size() <= enlarge_limits);
+    if (nret > 0)
+      buffer.resize(nret);
+    else
+      buffer = format_traits<_Elem>::report_error();
+#else
+    /* other standard implementation
+    see: http://www.cplusplus.com/reference/cstdio/vsnprintf/
+    */
+    buffer = format_traits<_Elem>::report_error();
+#endif
   }
 
   return buffer;

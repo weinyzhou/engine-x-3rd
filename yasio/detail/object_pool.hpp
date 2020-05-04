@@ -29,8 +29,6 @@ SOFTWARE.
 #ifndef YASIO__OBJECT_POOL_HPP
 #define YASIO__OBJECT_POOL_HPP
 
-#pragma once
-
 #include <assert.h>
 #include <stdlib.h>
 #include <memory>

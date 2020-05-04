@@ -33,7 +33,7 @@ SOFTWARE.
 ** Uncomment or add compiler flag -DYASIO_HEADER_ONLY to enable yasio core implementation header
 ** only
 */
-#define YASIO_HEADER_ONLY 1
+// #define YASIO_HEADER_ONLY 1
 
 /*
 ** Uncomment or add compiler flag -DYASIO_VERBOSE_LOG to enable verbose log
@@ -57,12 +57,12 @@ SOFTWARE.
 /*
 ** Uncomment or add compiler flag -DYASIO_ENABLE_ARES_PROFILER to test async resolve performance
 */
-#define YASIO_ENABLE_ARES_PROFILER 1
+// #define YASIO_ENABLE_ARES_PROFILER 1
 
 /*
 ** Uncomment or add compiler flag -DYASIO_HAVE_CARES to use c-ares to perform async resolve
 */
-#define YASIO_HAVE_CARES 1
+// #define YASIO_HAVE_CARES 1
 
 /*
 ** Uncomment or add compiler flag -DYASIO_HAVE_KCP for kcp support
@@ -76,7 +76,7 @@ SOFTWARE.
 /*
 ** Uncomment or add compiler flag -DYASIO_HAVE_SSL for SSL support
 */
-#define YASIO_HAVE_SSL 1
+// #define YASIO_HAVE_SSL 1
 
 /*
 ** Uncomment or add compiler flag -DYASIO_DISABLE_CONCURRENT_SINGLETON to disable concurrent
@@ -91,6 +91,11 @@ SOFTWARE.
 #if !YASIO__HAS_FULL_CXX11 && !defined(YASIO_DISABLE_CONCURRENT_SINGLETON)
 #  define YASIO_DISABLE_CONCURRENT_SINGLETON 1
 #endif
+
+/*
+** Uncomment or add compiler flag -DYASIO_NO_EXCEPTIONS to disable exceptions
+*/
+// #define YASIO_NO_EXCEPTIONS 1
 
 #if defined(YASIO_HEADER_ONLY)
 #  define YASIO__DECL inline
@@ -114,6 +119,12 @@ SOFTWARE.
 #  define YASIO_LOGV(fmt, ...) (void)0
 #else
 #  define YASIO_LOGV YASIO_LOG
+#endif
+
+#if !defined(YASIO_NO_EXCEPTIONS)
+#  define YASIO__THROW(x, retval) throw(x)
+#else
+#  define YASIO__THROW(x, retval) return (retval)
 #endif
 
 #define YASIO_ARRAYSIZE(A) (sizeof(A) / sizeof((A)[0]))
@@ -144,9 +155,6 @@ SOFTWARE.
 
 // The max wait duration in macroseconds when io_service nothing to do.
 #define YASIO_MAX_WAIT_DURATION 5 * 60 * 1000 * 1000
-
-// The the min wait duration in macroseconds when kernel send buffer is full.
-#define YASIO_WOULDBLOCK_WAIT_DURATION 16667
 
 // The default ttl of multicast
 #define YASIO_DEFAULT_MULTICAST_TTL (int)128

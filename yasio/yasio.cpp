@@ -481,18 +481,21 @@ bool io_transport::do_write(long long& max_wait_duration)
 int io_transport::call_read(void* data, int size, int& error)
 {
   int n = read_cb_(data, size);
+  if (n > 0)
+    return n;
   if (n < 0)
   {
     error = xxsocket::get_last_errno();
     if (!YASIO_SHOULD_CLOSE_0(error)) // status ok
-      n = 0;
+      return 0;
+    return n;
   }
-  else if (n == 0 && yasio__testbits(ctx_->properties_, YCM_TCP))
+  if (yasio__testbits(ctx_->properties_, YCM_TCP))
   {
-    n     = -1;
     error = yasio::errc::eof;
+    return -1;
   }
-  return n;
+  return 0;
 }
 int io_transport::call_write(io_send_op* op, int& error)
 {
@@ -901,10 +904,10 @@ void io_service::clear_transports()
   }
   transports_.clear();
 }
-void io_service::dispatch(int count)
+void io_service::dispatch(int max_count)
 {
   if (options_.on_event_)
-    this->events_.consume(count, options_.on_event_);
+    this->events_.consume(max_count, options_.on_event_);
 }
 void io_service::run()
 {
@@ -947,7 +950,8 @@ void io_service::run()
     // Reset the interrupter.
     else if (retval > 0 && FD_ISSET(this->interrupter_.read_descriptor(), &(fds_array[read_op])))
     {
-      interrupter_.reset();
+      if (!interrupter_.reset())
+        interrupter_.recreate();
       --retval;
     }
 
@@ -987,11 +991,12 @@ void io_service::process_transports(fd_set* fds_array, long long& max_wait_durat
     if (ok)
     {
       int opm = transport->opmask_ | transport->ctx_->opmask_;
-      if (!yasio__testbits(opm, YOPM_CLOSE) || shutdown_internal(transport))
-      {
+      if (0 == opm)
+      { // no open/close operations request
         ++iter;
         continue;
       }
+      shutdown_internal(transport);
     }
 
     handle_close(transport);
@@ -1080,21 +1085,6 @@ bool io_service::is_open(int cindex) const
   auto ctx = channel_at(cindex);
   return ctx != nullptr && ctx->state_ == io_base::state::OPEN;
 }
-void io_service::reopen(transport_handle_t transport)
-{
-  if (!transport->is_open())
-  {
-    YASIO_KLOG("can't reopen transport:%p, the state of it is invalid!", transport);
-    return;
-  }
-  auto ctx = transport->ctx_;
-  // Only client channel support reopen by transport
-  if (yasio__testbits(ctx->properties_, YCM_CLIENT))
-  {
-    cleanup_io(ctx); // will close socket directly
-    open_internal(ctx);
-  }
-}
 void io_service::open(size_t cindex, int kind)
 {
   assert((kind > 0 && kind <= 0xff) && ((kind & (kind - 1)) != 0));
@@ -1123,8 +1113,8 @@ void io_service::handle_close(transport_handle_t thandle)
   auto ec  = thandle->error_;
 
   // @Because we can't retrive peer endpoint when connect reset by peer, so use id to trace.
-  YASIO_KLOG("[index: %d] the connection #%u is lost, ec=%d, detail:%s", ctx->index_, thandle->id_,
-             ec, io_service::strerror(ec));
+  YASIO_KLOG("[index: %d] the connection #%u(%p) is lost, ec=%d, detail:%s", ctx->index_,
+             thandle->id_, thandle, ec, io_service::strerror(ec));
 
   cleanup_io(thandle, false);
 
@@ -1742,8 +1732,8 @@ void io_service::notify_connect_succeed(transport_handle_t transport)
   YASIO_KLOGV("[index: %d] sndbuf=%d, rcvbuf=%d", ctx->index_,
               s->get_optval<int>(SOL_SOCKET, SO_SNDBUF), s->get_optval<int>(SOL_SOCKET, SO_RCVBUF));
 
-  YASIO_KLOG("[index: %d] the connection #%u [%s] --> [%s] is established.", ctx->index_,
-             transport->id_, s->local_endpoint().to_string().c_str(),
+  YASIO_KLOG("[index: %d] the connection #%u(%p) [%s] --> [%s] is established.", ctx->index_,
+             transport->id_, transport, s->local_endpoint().to_string().c_str(),
              s->peer_endpoint().to_string().c_str());
   this->handle_event(event_ptr(new io_event(ctx->index_, YEK_CONNECT_RESPONSE, 0, transport)));
 }

@@ -775,7 +775,7 @@ public:
   // should call at the thread who care about async io
   // events(CONNECT_RESPONSE,CONNECTION_LOST,PACKET), such cocos2d-x opengl or
   // any other game engines' render thread.
-  YASIO__DECL void dispatch(int count = 512);
+  YASIO__DECL void dispatch(int max_count = 128);
 
   // set option, see enum YOPT_XXX
   YASIO__DECL void set_option(int opt, ...);
@@ -786,15 +786,11 @@ public:
 
   // check whether the channel is open
   YASIO__DECL bool is_open(int cindex) const;
-
   // check whether the transport is open
   YASIO__DECL bool is_open(transport_handle_t) const;
 
-  YASIO__DECL void reopen(transport_handle_t);
-
   // close transport
   YASIO__DECL void close(transport_handle_t);
-
   // close channel
   YASIO__DECL void close(int cindex);
 

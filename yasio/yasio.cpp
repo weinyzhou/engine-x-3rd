@@ -437,9 +437,9 @@ int io_transport::write(std::vector<char>&& buffer, io_completion_cb_t&& handler
   get_service().interrupt();
   return n;
 }
-int io_transport::do_read(int& error)
+int io_transport::do_read(int revent, int& error)
 {
-  return this->call_read(buffer_ + wpos_, sizeof(buffer_) - wpos_, error);
+  return revent ? this->call_read(buffer_ + wpos_, sizeof(buffer_) - wpos_, error) : 0;
 }
 bool io_transport::do_write(long long& max_wait_duration)
 {
@@ -730,26 +730,28 @@ int io_transport_kcp::write(std::vector<char>&& buffer, io_completion_cb_t&& /*h
   get_service().interrupt();
   return retval == 0 ? len : retval;
 }
-int io_transport_kcp::do_read(int& error)
+int io_transport_kcp::do_read(int revent, int& error)
 {
-  int n = this->call_read(&rawbuf_.front(), static_cast<int>(rawbuf_.size()), error);
-  return n > 0 ? this->handle_read(rawbuf_.data(), n, error) : n;
+  int n = revent ? this->call_read(&rawbuf_.front(), static_cast<int>(rawbuf_.size()), error) : 0;
+  if (n > 0)
+    this->handle_read(rawbuf_.data(), n, error);
+  if (!error)
+  { // !important, should always try to call ikcp_recv when no error occured.
+    n = ::ikcp_recv(kcp_, buffer_ + wpos_, sizeof(buffer_) - wpos_);
+    if (n < 0) // EAGAIN/EWOULDBLOCK
+      n = 0;
+  }
+  return n;
 }
 int io_transport_kcp::handle_read(const char* buf, int len, int& error)
 {
   // ikcp in event always in service thread, so no need to lock
   if (0 == ::ikcp_input(kcp_, buf, len))
-  {
-    len = ::ikcp_recv(kcp_, buffer_ + wpos_, sizeof(buffer_) - wpos_);
-    if (len < 0) // EAGAIN/EWOULDBLOCK
-      len = 0;
-  }
-  else
-  { // simply regards -1,-2,-3 as error and trigger connection lost event.
-    len   = -1;
-    error = yasio::errc::invalid_packet;
-  }
-  return len;
+    return len;
+
+  // simply regards -1,-2,-3 as error and trigger connection lost event.
+  error = yasio::errc::invalid_packet;
+  return -1;
 }
 bool io_transport_kcp::do_write(long long& max_wait_duration)
 {
@@ -1258,7 +1260,7 @@ void io_service::do_nonblocking_connect(io_channel* ctx)
       ctx->join_multicast_group();
 
     if (ret < 0)
-    { // setup no blocking connect
+    { // setup non-blocking connect
       int error = xxsocket::get_last_errno();
       if (error != EINPROGRESS && error != EWOULDBLOCK)
         this->handle_connect_failed(ctx, error);
@@ -1620,7 +1622,7 @@ void io_service::do_nonblocking_accept_completion(io_channel* ctx, fd_set* fds_a
         error = ctx->socket_->accept_n(sockfd);
         if (error == 0)
           handle_connect_succeed(ctx, std::make_shared<xxsocket>(sockfd));
-        else // The non blocking tcp accept failed can be ignored.
+        else // The non-blocking tcp accept failed can be ignored.
           YASIO_KLOGV("[index: %d] socket.fd=%d, accept failed, ec=%u", ctx->index_,
                       (int)ctx->socket_->native_handle(), error);
       }
@@ -1815,10 +1817,9 @@ bool io_service::do_read(transport_handle_t transport, fd_set* fds_array,
     if (!transport->socket_->is_open())
       break;
 
-    int n = 0, error = 0;
-    if (FD_ISSET(transport->socket_->native_handle(), &(fds_array[read_op])))
-      n = transport->do_read(error);
-
+    int error  = 0;
+    int revent = FD_ISSET(transport->socket_->native_handle(), &(fds_array[read_op]));
+    int n      = transport->do_read(revent, error);
     if (n >= 0)
     {
       YASIO_KLOGV("[index: %d] do_read status ok, bytes transferred: %d, buffer used: %d",
@@ -2110,7 +2111,7 @@ void io_service::start_resolve(io_channel* ctx)
     std::vector<ip::endpoint> remote_eps;
     int error = options_.resolv_(remote_eps, resolving_host.c_str(), resolving_port);
 
-    // lock perform non blocking code
+    // lock perform update dns state of the channel
     auto pmtx = weak_mutex.lock();
     if (!pmtx)
       return;

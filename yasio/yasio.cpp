@@ -428,7 +428,9 @@ io_transport::io_transport(io_channel* ctx, std::shared_ptr<xxsocket>& s) : ctx_
   this->state_                    = io_base::state::OPEN;
   this->id_                       = ++s_object_id;
   this->socket_                   = s;
-  this->ud_.ptr                   = nullptr;
+#if !defined(YASIO_MINIFY_EVENT)
+  this->ud_.ptr = nullptr;
+#endif
 }
 int io_transport::write(std::vector<char>&& buffer, io_completion_cb_t&& handler)
 {
@@ -703,7 +705,7 @@ void io_transport_udp::set_primitives()
 int io_transport_udp::handle_read(const char* buf, int bytes_transferred, int& /*error*/)
 { // pure udp, dispatch to upper layer directly
   get_service().handle_event(event_ptr(
-      new io_event(cindex(), YEK_PACKET, std::vector<char>(buf, buf + bytes_transferred), this)));
+      new io_event(cindex(), YEK_PACKET, this, std::vector<char>(buf, buf + bytes_transferred))));
   return bytes_transferred;
 }
 
@@ -1143,6 +1145,9 @@ void io_service::handle_close(transport_handle_t thandle)
   YASIO_KLOG("[index: %d] the connection #%u(%p) is lost, ec=%d, detail:%s", ctx->index_,
              thandle->id_, thandle, ec, io_service::strerror(ec));
 
+  // @Notify connection lost
+  this->handle_event(event_ptr(new io_event(ctx->index_, YEK_CONNECTION_LOST, ec, thandle)));
+
   cleanup_io(thandle, false);
 
   deallocate_transport(thandle);
@@ -1155,9 +1160,6 @@ void io_service::handle_close(transport_handle_t thandle)
     ctx->state_ = io_base::state::CLOSED;
     yasio__clearhiword(ctx->properties_); // clear private flags
   }
-
-  // @Notify connection lost
-  this->handle_event(event_ptr(new io_event(ctx->index_, YEK_CONNECTION_LOST, ec, thandle)));
 }
 void io_service::register_descriptor(const socket_native_type fd, int flags)
 {
@@ -1806,7 +1808,7 @@ void io_service::handle_connect_failed(io_channel* ctx, int error)
 
   YASIO_KLOG("[index: %d] connect server %s:%u failed, ec=%d, detail:%s", ctx->index_,
              ctx->remote_host_.c_str(), ctx->remote_port_, error, io_service::strerror(error));
-  this->handle_event(event_ptr(new io_event(ctx->index_, YEK_CONNECT_RESPONSE, error, nullptr)));
+  this->handle_event(event_ptr(new io_event(ctx->index_, YEK_CONNECT_RESPONSE, error)));
 }
 bool io_service::do_read(transport_handle_t transport, fd_set* fds_array,
                          long long& max_wait_duration)
@@ -1887,7 +1889,7 @@ void io_service::unpack(transport_handle_t transport, int bytes_expected, int by
                 "packet size:%d",
                 transport->cindex(), transport->expected_size_);
     this->handle_event(event_ptr(
-        new io_event(transport->cindex(), YEK_PACKET, transport->fetch_packet(), transport)));
+        new io_event(transport->cindex(), YEK_PACKET, transport, transport->fetch_packet())));
   }
   else /* all buffer consumed, set wpos to ZERO, pdu incomplete, continue recv remain data. */
     transport->wpos_ = 0;
@@ -2170,8 +2172,8 @@ void io_service::start_resolve(io_channel* ctx)
                      io_service::ares_getaddrinfo_cb, ctx);
 #endif
 }
-int io_service::builtin_resolv(std::vector<ip::endpoint>& endpoints, const char* hostname,
-                               unsigned short port)
+int io_service::resolve(std::vector<ip::endpoint>& endpoints, const char* hostname,
+                        unsigned short port)
 {
   if (yasio__testbits(this->ipsv_, ipsv_ipv4))
     return xxsocket::resolve_v4(endpoints, hostname, port);

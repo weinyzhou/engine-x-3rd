@@ -148,7 +148,7 @@ if(WINDOWS OR ANDROID OR LINUX)
 endif()
 
 if(WINDOWS)
-    add_subdirectory(win32-specific/glad)
+    add_subdirectory(glad)
     add_subdirectory(win32-specific/iconv)
     target_link_libraries(external 
         ext_glad

@@ -19,7 +19,6 @@ option(BUILD_EXT_MD5 "Build with internal md5 support" ON)
 option(BUILD_EXT_ZLIB "Build with internal zlib support" ON)
 option(BUILD_EXT_CURL "Build with internal curl support" ON)
 option(BUILD_EXT_UNZIP "Build with internal unzip support" ON)
-option(BUILD_EXT_FLATBUFFERS "Build with internal flatbuffers support" ON)
 option(BUILD_EXT_SPINE_CPP "Build with internal spine cpp runtime" ON)
 option(BUILD_EXT_CARES "Build with internal c-ares support" ON)
 option(BUILD_EXT_ASTC "Build with internal ASTC support" ON)
@@ -147,6 +146,7 @@ if(WINDOWS OR ANDROID OR LINUX)
     )
 endif()
 
+# TODO: linux
 if(WINDOWS)
     add_subdirectory(glad)
     add_subdirectory(win32-specific/iconv)
@@ -177,12 +177,6 @@ if(BUILD_EXT_UNZIP)
     add_subdirectory(unzip)
     target_link_libraries(external ext_unzip)
 endif(BUILD_EXT_UNZIP)
-
-# flatbuffers 1.11.0 rquired
-if(BUILD_EXT_FLATBUFFERS)
-    add_subdirectory(flatbuffers)
-    target_link_libraries(external ext_flatbuffers)
-endif(BUILD_EXT_FLATBUFFERS)
 
 # since 3.6/3.7 c runtime support build as DLL
 # since 3.8 cpp runtime is preferred for cocos2d-x

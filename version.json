@@ -1,5 +1,5 @@
 {
-    "prebuilt_libs_version":"engine-x-40",
+    "prebuilt_libs_version":"engine-x-deps-43",
     "freetype":"2.10.2",
     "curl":"7.70.0",
     "jpeg":"9.0",

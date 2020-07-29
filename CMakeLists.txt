@@ -67,8 +67,8 @@ if(BUILD_EXT_JPEG)
 endif(BUILD_EXT_JPEG)
 if(BUILD_EXT_OPENSSL)
     add_subdirectory(openssl)
+    target_link_libraries(ext_ssl INTERFACE ext_crypto)
     target_link_libraries(external ext_ssl)
-    target_link_libraries(external ext_crypto)
 endif(BUILD_EXT_OPENSSL)
 if(BUILD_EXT_WEBP)
     add_subdirectory(webp)
@@ -122,6 +122,7 @@ endif()
 if(NOT LINUX)
     if(BUILD_EXT_CURL)
         add_subdirectory(curl)
+        target_link_libraries(ext_curl INTERFACE ext_ssl)
         target_link_libraries(external ext_curl)
     endif(BUILD_EXT_CURL)
     add_subdirectory(png)
@@ -145,11 +146,9 @@ if(WINDOWS)
         ext_vorbisfile
     )
 else()
-    target_link_libraries(external
-        ext_ogg
-        ext_vorbis
-        ext_vorbisfile
-    )
+    target_link_libraries(ext_vorbis INTERFACE ext_ogg)
+    target_link_libraries(ext_vorbisfile INTERFACE ext_vorbis)
+    target_link_libraries(external ext_vorbisfile)
 endif()
 
 # OpenAL streaming play family: openal & mpg123

@@ -125,6 +125,9 @@ typedef struct cpSpace cpSpace;
 
 #include "cpSpace.h"
 
+// patch me: engine-x link android required
+#include "cpHastySpace.h"
+
 // Chipmunk 7.0.3
 #define CP_VERSION_MAJOR 7
 #define CP_VERSION_MINOR 0

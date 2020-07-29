@@ -35,8 +35,19 @@ if(BUILD_EXT_BOX2D)
     target_link_libraries(external ext_box2d)
 endif(BUILD_EXT_BOX2D)
 if(BUILD_EXT_CHIPMUNK)
+    # !important engine-x not use double precision
+    set(CP_USE_DOUBLES OFF CACHE BOOL "Build chipmunk with doubles" FORCE)
+    set(CP_BUILD_SHARED OFF CACHE BOOL "Build chipmunk as shared library" FORCE)
+    set(CP_BUILD_STATIC ON CACHE BOOL "Build chipmunk as static library" FORCE)
+    set(CP_BUILD_DEMOS OFF CACHE BOOL "Build chipmunk demos" FORCE)
+    set(CP_INSTALL_STATIC OFF CACHE BOOL "Install chipmunk static" FORCE)
     add_subdirectory(chipmunk)
-    target_link_libraries(external ext_chipmunk)
+    set_target_properties(chipmunk_static PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/chipmunk/include"
+    )
+
+    #~ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/chipmunk/include")
+    target_link_libraries(external chipmunk_static)
 endif(BUILD_EXT_CHIPMUNK)
 if(BUILD_EXT_FREETYPE2)
     add_subdirectory(freetype2)

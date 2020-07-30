@@ -163,6 +163,11 @@ if(WINDOWS OR ANDROID OR LINUX)
         ext_openal
         ext_mpg123
     )
+elseif(APPLE AND CC_USE_ALSOFT_ON_APPLE) 
+    add_subdirectory(openal)
+    target_link_libraries(external
+        ext_openal
+    )
 endif()
 
 # TODO: linux

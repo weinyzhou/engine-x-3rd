@@ -18,7 +18,13 @@ if(WINDOWS)
        IMPORTED_LOCATION "${platform_spec_path}/OpenAL32.dll"
        IMPORTED_IMPLIB "${platform_spec_path}/OpenAL32.lib"
     )
-else()
+elseif(APPLE)
+    if(CC_USE_ALSOFT_ON_APPLE)
+      set_target_properties(${target_name} PROPERTIES
+        IMPORTED_LOCATION "${platform_spec_path}/lib${lib_name}.a"
+      )
+    endif()
+elseif(ANDROID)
     set_target_properties(${target_name} PROPERTIES
       IMPORTED_LOCATION "${platform_spec_path}/lib${lib_name}.so"
     )

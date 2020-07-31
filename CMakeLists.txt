@@ -35,8 +35,6 @@ if(BUILD_EXT_BOX2D)
     target_link_libraries(external ext_box2d)
 endif(BUILD_EXT_BOX2D)
 if(BUILD_EXT_CHIPMUNK)
-    # !important engine-x not use double precision
-    set(CP_USE_DOUBLES OFF CACHE BOOL "Build chipmunk with doubles" FORCE)
     set(CP_BUILD_SHARED OFF CACHE BOOL "Build chipmunk as shared library" FORCE)
     set(CP_BUILD_STATIC ON CACHE BOOL "Build chipmunk as static library" FORCE)
     set(CP_BUILD_DEMOS OFF CACHE BOOL "Build chipmunk demos" FORCE)
@@ -45,6 +43,10 @@ if(BUILD_EXT_CHIPMUNK)
     set_target_properties(chipmunk_static PROPERTIES
       INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/chipmunk/include"
     )
+    
+    # !important engine-x not use double precision
+    target_compile_definitions(chipmunk_static PUBLIC CP_USE_CGTYPES=0)
+    target_compile_definitions(chipmunk_static PUBLIC CP_USE_DOUBLES=0)
 
     #~ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/chipmunk/include")
     target_link_libraries(external chipmunk_static)
@@ -67,11 +69,11 @@ if(BUILD_EXT_JPEG)
 endif(BUILD_EXT_JPEG)
 if(BUILD_EXT_OPENSSL)
     add_subdirectory(openssl)
-    if(WINDOWS)
-        target_link_libraries(external ext_crypto ext_ssl)
-    else()
+    if(ANDROID)
         target_link_libraries(ext_ssl INTERFACE ext_crypto)
         target_link_libraries(external ext_ssl)
+    else()
+        target_link_libraries(external ext_crypto ext_ssl)
     endif()
 endif(BUILD_EXT_OPENSSL)
 if(BUILD_EXT_WEBP)
@@ -126,7 +128,9 @@ endif()
 if(NOT LINUX)
     if(BUILD_EXT_CURL)
         add_subdirectory(curl)
-        target_link_libraries(ext_curl INTERFACE ext_ssl)
+        if(ANDROID)
+            target_link_libraries(ext_curl INTERFACE ext_ssl)
+        endif()
         target_link_libraries(external ext_curl)
     endif(BUILD_EXT_CURL)
     add_subdirectory(png)
@@ -150,9 +154,17 @@ if(WINDOWS)
         ext_vorbisfile
     )
 else()
-    target_link_libraries(ext_vorbis INTERFACE ext_ogg)
-    target_link_libraries(ext_vorbisfile INTERFACE ext_vorbis)
-    target_link_libraries(external ext_vorbisfile)
+    if(ANDROID)
+        target_link_libraries(ext_vorbis INTERFACE ext_ogg)
+        target_link_libraries(ext_vorbisfile INTERFACE ext_vorbis)
+        target_link_libraries(external ext_vorbisfile)
+    else()
+        target_link_libraries(external 
+            ext_ogg
+            ext_vorbis
+            ext_vorbisfile
+        )
+    endif()
 endif()
 
 # OpenAL streaming play family: openal & mpg123

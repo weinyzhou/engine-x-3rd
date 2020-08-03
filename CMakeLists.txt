@@ -219,6 +219,13 @@ endif(BUILD_EXT_UNZIP)
 if(BUILD_EXT_SPINE_CPP)
     add_subdirectory(spine-cpp)
     target_link_libraries(external spine-cpp)
+    set_target_properties(spine-cpp
+    PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    FOLDER "External"
+)
+
 endif(BUILD_EXT_SPINE_CPP)
 
 if(BUILD_EXT_CARES)

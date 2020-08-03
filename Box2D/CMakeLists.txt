@@ -18,10 +18,10 @@ if(WINDOWS)
     # need use absolutely path
     IMPORTED_LOCATION "${platform_spec_path}/lib${lib_name}.lib"
   )
-  set_target_properties(${target_name} PROPERTIES
-    MAP_IMPORTED_CONFIG_MINSIZEREL Release
-    MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release
-  )
+  #  set_target_properties(${target_name} PROPERTIES
+  #    MAP_IMPORTED_CONFIG_MINSIZEREL Release
+  #    MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release
+  #  )
 else()
   set_target_properties(${target_name} PROPERTIES
     IMPORTED_LOCATION "${platform_spec_path}/lib${lib_name}.a"
